@@ -10,6 +10,7 @@ import pytest
 from mcp_tap.errors import ScanError
 from mcp_tap.models import (
     DetectedTechnology,
+    MCPClient,
     ProjectProfile,
     RegistryType,
     ServerRecommendation,
@@ -818,6 +819,59 @@ class TestRecommendServers:
                     f"Technology '{tech_name}' should produce recommendation "
                     f"'{expected.package_identifier}'"
                 )
+
+    # ─── Client-aware filtering ───────────────────────────────
+
+    def test_claude_code_filters_filesystem(self):
+        """Claude Code should NOT get filesystem-mcp (has native Read/Write/Edit)."""
+        profile = self._make_profile([("postgresql", TechnologyCategory.DATABASE)])
+        recs = recommend_servers(profile, client=MCPClient.CLAUDE_CODE)
+        rec_names = {r.server_name for r in recs}
+        assert "filesystem-mcp" not in rec_names
+        assert "postgres-mcp" in rec_names  # real recommendation kept
+
+    def test_claude_code_filters_github(self):
+        """Claude Code should NOT get github-mcp (has native gh CLI)."""
+        profile = self._make_profile([("github", TechnologyCategory.SERVICE)])
+        recs = recommend_servers(profile, client=MCPClient.CLAUDE_CODE)
+        rec_names = {r.server_name for r in recs}
+        assert "github-mcp" not in rec_names
+
+    def test_claude_desktop_keeps_everything(self):
+        """Claude Desktop has no native tools — should get all recommendations."""
+        profile = self._make_profile(
+            [
+                ("github", TechnologyCategory.SERVICE),
+                ("postgresql", TechnologyCategory.DATABASE),
+            ]
+        )
+        recs = recommend_servers(profile, client=MCPClient.CLAUDE_DESKTOP)
+        rec_names = {r.server_name for r in recs}
+        assert "github-mcp" in rec_names
+        assert "postgres-mcp" in rec_names
+        assert "filesystem-mcp" in rec_names
+
+    def test_cursor_filters_filesystem_only(self):
+        """Cursor should filter filesystem but keep github."""
+        profile = self._make_profile([("github", TechnologyCategory.SERVICE)])
+        recs = recommend_servers(profile, client=MCPClient.CURSOR)
+        rec_names = {r.server_name for r in recs}
+        assert "github-mcp" in rec_names
+        assert "filesystem-mcp" not in rec_names
+
+    def test_no_client_keeps_everything(self):
+        """No client specified — should recommend everything (backward compat)."""
+        profile = self._make_profile([("github", TechnologyCategory.SERVICE)])
+        recs = recommend_servers(profile)
+        rec_names = {r.server_name for r in recs}
+        assert "github-mcp" in rec_names
+        assert "filesystem-mcp" in rec_names
+
+    def test_claude_code_empty_profile_no_filesystem(self):
+        """Claude Code with empty profile should get NO recommendations."""
+        profile = self._make_profile()
+        recs = recommend_servers(profile, client=MCPClient.CLAUDE_CODE)
+        assert len(recs) == 0  # filesystem filtered, nothing else
 
 
 # ═══════════════════════════════════════════════════════════════

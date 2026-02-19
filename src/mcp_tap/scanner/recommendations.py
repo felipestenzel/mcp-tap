@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 
 from mcp_tap.models import (
+    MCPClient,
     ProjectProfile,
     RegistryType,
     ServerRecommendation,
@@ -121,15 +122,58 @@ TECHNOLOGY_SERVER_MAP: dict[str, list[ServerRecommendation]] = {
 }
 
 
-def recommend_servers(profile: ProjectProfile) -> list[ServerRecommendation]:
+# ─── Native capabilities per client ──────────────────────────
+# Packages that are redundant because the client already provides
+# equivalent functionality natively.
+
+CLIENT_NATIVE_CAPABILITIES: dict[MCPClient, dict[str, str]] = {
+    MCPClient.CLAUDE_CODE: {
+        # Claude Code has Read/Write/Edit/Glob/Grep tools natively
+        "@modelcontextprotocol/server-filesystem": (
+            "Claude Code has native file Read/Write/Edit/Glob/Grep tools"
+        ),
+        # Claude Code has Bash with gh CLI for full GitHub/Git access
+        "@modelcontextprotocol/server-github": ("Claude Code has native Bash access to the gh CLI"),
+        # Claude Code has Bash with git CLI
+        "@modelcontextprotocol/server-git": ("Claude Code has native Bash access to git"),
+    },
+    MCPClient.CURSOR: {
+        # Cursor has built-in file editing
+        "@modelcontextprotocol/server-filesystem": (
+            "Cursor has built-in file editing capabilities"
+        ),
+    },
+    MCPClient.WINDSURF: {
+        # Windsurf has built-in file editing
+        "@modelcontextprotocol/server-filesystem": (
+            "Windsurf has built-in file editing capabilities"
+        ),
+    },
+    # Claude Desktop has no native tools — needs MCP for everything
+    MCPClient.CLAUDE_DESKTOP: {},
+}
+
+
+def recommend_servers(
+    profile: ProjectProfile,
+    *,
+    client: MCPClient | None = None,
+) -> list[ServerRecommendation]:
     """Map detected technologies to MCP server recommendations.
+
+    When client is provided, filters out servers that are redundant with
+    the client's native capabilities. For example, Claude Code already
+    has filesystem and GitHub access, so those MCPs are skipped.
 
     Args:
         profile: A partially-built ProjectProfile with technologies populated.
+        client: The MCP client where servers will be installed. When set,
+            recommendations redundant with native capabilities are removed.
 
     Returns:
         Deduplicated list of ServerRecommendation sorted by priority (high first).
     """
+    native = CLIENT_NATIVE_CAPABILITIES.get(client, {}) if client else {}
     seen_packages: set[str] = set()
     results: list[ServerRecommendation] = []
 
@@ -139,12 +183,20 @@ def recommend_servers(profile: ProjectProfile) -> list[ServerRecommendation]:
     for tech_name in tech_names:
         recommendations = TECHNOLOGY_SERVER_MAP.get(tech_name, [])
         for rec in recommendations:
-            if rec.package_identifier not in seen_packages:
-                seen_packages.add(rec.package_identifier)
-                results.append(rec)
+            if rec.package_identifier in seen_packages:
+                continue
+            seen_packages.add(rec.package_identifier)
+            if rec.package_identifier in native:
+                logger.debug(
+                    "Skipping %s: %s",
+                    rec.server_name,
+                    native[rec.package_identifier],
+                )
+                continue
+            results.append(rec)
 
-    # Always recommend filesystem server for any project
-    _add_filesystem_recommendation(results, seen_packages)
+    # Always recommend filesystem server for any project — unless native
+    _add_filesystem_recommendation(results, seen_packages, native)
 
     # Sort by priority: high → medium → low
     results.sort(key=lambda r: _PRIORITY_ORDER.get(r.priority, 99))
@@ -155,10 +207,12 @@ def recommend_servers(profile: ProjectProfile) -> list[ServerRecommendation]:
 def _add_filesystem_recommendation(
     results: list[ServerRecommendation],
     seen_packages: set[str],
+    native: dict[str, str],
 ) -> None:
-    """Ensure the filesystem server is always recommended."""
+    """Ensure the filesystem server is recommended (unless client has native access)."""
     fs_recs = TECHNOLOGY_SERVER_MAP.get("filesystem", [])
     for rec in fs_recs:
         if rec.package_identifier not in seen_packages:
             seen_packages.add(rec.package_identifier)
-            results.append(rec)
+            if rec.package_identifier not in native:
+                results.append(rec)

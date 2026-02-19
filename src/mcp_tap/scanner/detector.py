@@ -19,6 +19,7 @@ from pathlib import Path
 from mcp_tap.errors import ScanError
 from mcp_tap.models import (
     DetectedTechnology,
+    MCPClient,
     ProjectProfile,
     TechnologyCategory,
 )
@@ -30,11 +31,18 @@ logger = logging.getLogger(__name__)
 # ─── Public API ──────────────────────────────────────────────
 
 
-async def scan_project(path: str) -> ProjectProfile:
+async def scan_project(
+    path: str,
+    *,
+    client: MCPClient | None = None,
+) -> ProjectProfile:
     """Scan a project directory and return a complete ProjectProfile.
 
     Args:
         path: Absolute or relative path to the project root.
+        client: The MCP client where servers will be installed. When set,
+            recommendations redundant with the client's native capabilities
+            are filtered out (e.g. filesystem MCP is skipped for Claude Code).
 
     Returns:
         A ProjectProfile with detected technologies, env var names,
@@ -81,7 +89,7 @@ async def scan_project(path: str) -> ProjectProfile:
         technologies=technologies,
         env_var_names=env_var_names,
     )
-    recommendations = recommend_servers(profile)
+    recommendations = recommend_servers(profile, client=client)
 
     return replace(profile, recommendations=recommendations)
 

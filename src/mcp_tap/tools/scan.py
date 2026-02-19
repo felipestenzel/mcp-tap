@@ -42,7 +42,9 @@ async def scan_project(
         (each with already_installed flag), and a human-readable summary.
     """
     try:
-        profile = await _scan_project(path)
+        # Resolve client for native capability filtering
+        resolved_client = _resolve_client(client)
+        profile = await _scan_project(path, client=resolved_client)
         installed_names = _get_installed_server_names(client)
 
         # Cross-reference recommendations with installed servers
@@ -104,6 +106,19 @@ async def scan_project(
     except Exception as exc:
         await ctx.error(f"Unexpected error in scan_project: {exc}")
         return {"success": False, "error": f"Internal error: {type(exc).__name__}"}
+
+
+def _resolve_client(client: str | None) -> MCPClient | None:
+    """Resolve the target MCP client from string or auto-detection."""
+    try:
+        if client:
+            return MCPClient(client)
+        clients = detect_clients()
+        if clients:
+            return clients[0].client
+    except Exception:
+        pass
+    return None
 
 
 def _get_installed_server_names(client: str | None) -> set[str]:

@@ -310,7 +310,9 @@ class TestScanDefaultPath:
         ctx = _make_ctx()
         await scan_project(ctx)  # no path argument
 
-        mock_scan.assert_awaited_once_with(".")
+        # Now also passes client= from auto-detection
+        mock_scan.assert_awaited_once()
+        assert mock_scan.await_args[0][0] == "."
 
 
 class TestScanHasSummary:
