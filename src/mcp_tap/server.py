@@ -14,6 +14,7 @@ from mcp_tap.registry.client import RegistryClient
 from mcp_tap.tools.configure import configure_server
 from mcp_tap.tools.list import list_installed
 from mcp_tap.tools.remove import remove_server
+from mcp_tap.tools.scan import scan_project
 from mcp_tap.tools.search import search_servers
 from mcp_tap.tools.test import test_connection
 
@@ -41,14 +42,16 @@ mcp = FastMCP(
     "mcp-tap",
     instructions=(
         "This server helps you discover, install, and configure MCP servers. "
-        "Use search_servers to find servers, configure_server to add them to "
-        "your MCP client config, test_connection to verify they work, "
+        "Use scan_project to detect your tech stack and get recommendations, "
+        "search_servers to find servers, configure_server to install and add them "
+        "to your MCP client config, test_connection to verify they work, "
         "list_installed to see what's configured, and remove_server to clean up."
     ),
     lifespan=app_lifespan,
 )
 
 # ─── Read-only tools ──────────────────────────────────────────
+mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))(scan_project)
 mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))(search_servers)
 mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))(list_installed)
 mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))(test_connection)
