@@ -12,7 +12,9 @@ from mcp_tap.config.detection import detect_clients, resolve_config_path
 from mcp_tap.config.reader import parse_servers, read_config
 from mcp_tap.connection.tester import test_server_connection
 from mcp_tap.errors import McpTapError
+from mcp_tap.healing.retry import heal_and_retry
 from mcp_tap.models import (
+    ConnectionTestResult,
     HealthReport,
     InstalledServer,
     MCPClient,
@@ -24,6 +26,7 @@ async def check_health(
     ctx: Context,
     client: str | None = None,
     timeout_seconds: int = 15,
+    auto_heal: bool = False,
 ) -> dict[str, object]:
     """Check the health of all configured MCP servers at once.
 
@@ -41,10 +44,14 @@ async def check_health(
             Auto-detects if not specified.
         timeout_seconds: Max seconds to wait per server (clamped to 5-60).
             Default 15. Increase if servers are slow to start.
+        auto_heal: When True, attempt to diagnose and fix each unhealthy
+            server automatically. Healing results are included in each
+            server's entry in the report.
 
     Returns:
         Health report with: client, config_file, total/healthy/unhealthy
         counts, and per-server details (status, tools count, error).
+        When auto_heal is True, unhealthy servers include a "healing" key.
     """
     try:
         if client:
@@ -82,6 +89,13 @@ async def check_health(
 
         server_healths = await _check_all_servers(servers, timeout)
 
+        # Attempt healing for unhealthy servers if requested
+        healing_details: dict[str, dict[str, object]] = {}
+        if auto_heal:
+            server_healths, healing_details = await _heal_unhealthy(
+                servers, server_healths, timeout, ctx,
+            )
+
         healthy_count = sum(1 for s in server_healths if s.status == "healthy")
         unhealthy_count = len(server_healths) - healthy_count
 
@@ -93,7 +107,12 @@ async def check_health(
             unhealthy=unhealthy_count,
             servers=server_healths,
         )
-        return asdict(report)
+        result = asdict(report)
+
+        if healing_details:
+            result["healing_details"] = healing_details
+
+        return result
 
     except McpTapError as exc:
         return {"success": False, "error": str(exc)}
@@ -156,3 +175,66 @@ async def _check_single_server(
         status=status,
         error=result.error,
     )
+
+
+async def _heal_unhealthy(
+    servers: list[InstalledServer],
+    healths: list[ServerHealth],
+    timeout_seconds: int,
+    ctx: Context,
+) -> tuple[list[ServerHealth], dict[str, dict[str, object]]]:
+    """Attempt healing for each unhealthy server.
+
+    Returns updated healths list and a dict of healing details keyed
+    by server name.
+    """
+    updated: list[ServerHealth] = []
+    details: dict[str, dict[str, object]] = {}
+
+    for server, health in zip(servers, healths, strict=True):
+        if health.status == "healthy":
+            updated.append(health)
+            continue
+
+        await ctx.info(f"Attempting self-healing for {server.name}...")
+
+        error_result = ConnectionTestResult(
+            success=False,
+            server_name=server.name,
+            error=health.error,
+        )
+
+        healing_result = await heal_and_retry(
+            server.name, server.config, error_result,
+            timeout_seconds=timeout_seconds,
+        )
+
+        details[server.name] = {
+            "healed": healing_result.fixed,
+            "attempts_count": len(healing_result.attempts),
+            "user_action_needed": healing_result.user_action_needed,
+        }
+
+        if healing_result.fixed and healing_result.fixed_config is not None:
+            # Re-check with healed config
+            recheck = await test_server_connection(
+                server.name, healing_result.fixed_config,
+                timeout_seconds=timeout_seconds,
+            )
+            if recheck.success:
+                updated.append(
+                    ServerHealth(
+                        name=server.name,
+                        status="healthy",
+                        tools_count=len(recheck.tools_discovered),
+                        tools=recheck.tools_discovered,
+                    )
+                )
+                details[server.name]["fixed_config"] = (
+                    healing_result.fixed_config.to_dict()
+                )
+                continue
+
+        updated.append(health)
+
+    return updated, details

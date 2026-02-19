@@ -11,6 +11,7 @@ from mcp_tap.config.detection import detect_clients, resolve_config_path
 from mcp_tap.config.reader import parse_servers, read_config
 from mcp_tap.connection.tester import test_server_connection
 from mcp_tap.errors import McpTapError, ServerNotFoundError
+from mcp_tap.healing.retry import heal_and_retry
 from mcp_tap.models import ConnectionTestResult, MCPClient
 
 
@@ -19,6 +20,7 @@ async def test_connection(
     ctx: Context,
     client: str = "",
     timeout_seconds: int = 15,
+    auto_heal: bool = False,
 ) -> dict[str, object]:
     """Test that a single configured MCP server starts and responds correctly.
 
@@ -36,10 +38,14 @@ async def test_connection(
             Auto-detects if empty.
         timeout_seconds: Max seconds to wait for a response (clamped to 5-60).
             Default 15. Increase for slow-starting servers.
+        auto_heal: When True, if the test fails, attempt to diagnose the error,
+            apply an automatic fix, and retry. Returns healing details alongside
+            the test result.
 
     Returns:
         Test result with success status, discovered tool names, or error
-        message explaining what went wrong.
+        message explaining what went wrong. If auto_heal is True and healing
+        was attempted, includes a "healing" key with diagnosis and fix details.
     """
     try:
         if client:
@@ -72,7 +78,35 @@ async def test_connection(
             target.config,
             timeout_seconds=timeout,
         )
-        return asdict(result)
+
+        if result.success or not auto_heal:
+            return asdict(result)
+
+        # Attempt healing
+        await ctx.info(f"Test failed for {server_name}, attempting self-healing...")
+        healing_result = await heal_and_retry(
+            server_name, target.config, result, timeout_seconds=timeout,
+        )
+
+        response = asdict(result)
+        response["healing"] = {
+            "healed": healing_result.fixed,
+            "attempts_count": len(healing_result.attempts),
+            "user_action_needed": healing_result.user_action_needed,
+        }
+
+        if healing_result.fixed and healing_result.fixed_config is not None:
+            final_test = await test_server_connection(
+                server_name, healing_result.fixed_config, timeout_seconds=timeout,
+            )
+            response = asdict(final_test)
+            response["healing"] = {
+                "healed": True,
+                "attempts_count": len(healing_result.attempts),
+                "fixed_config": healing_result.fixed_config.to_dict(),
+            }
+
+        return response
 
     except McpTapError as exc:
         return asdict(
