@@ -39,7 +39,7 @@ class DockerInstaller:
         )
 
     async def uninstall(self, identifier: str) -> InstallResult:
-        returncode, stdout, stderr = await run_command(
+        returncode, _stdout, stderr = await run_command(
             ["docker", "rmi", identifier],
             timeout=30.0,
         )

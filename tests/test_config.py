@@ -9,7 +9,7 @@ import pytest
 
 from mcp_tap.config.reader import parse_servers, read_config
 from mcp_tap.config.writer import remove_server_config, write_server_config
-from mcp_tap.errors import ConfigWriteError
+from mcp_tap.errors import ConfigReadError, ConfigWriteError
 from mcp_tap.models import ServerConfig
 
 
@@ -44,7 +44,7 @@ class TestReadConfig:
     def test_invalid_json_raises(self, tmp_path: Path):
         f = tmp_path / "config.json"
         f.write_text("{broken json")
-        with pytest.raises(Exception):
+        with pytest.raises(ConfigReadError):
             read_config(f)
 
 

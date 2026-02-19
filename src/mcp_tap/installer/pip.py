@@ -49,7 +49,7 @@ class PipInstaller:
         )
 
     async def uninstall(self, identifier: str) -> InstallResult:
-        returncode, stdout, stderr = await run_command(
+        returncode, _stdout, stderr = await run_command(
             ["pip", "uninstall", "-y", identifier],
             timeout=30.0,
         )

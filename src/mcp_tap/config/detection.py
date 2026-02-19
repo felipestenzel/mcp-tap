@@ -14,7 +14,10 @@ def _claude_desktop_config() -> Path | None:
     home = Path.home()
     match sys.platform:
         case "darwin":
-            return home / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json"
+            return (
+                home / "Library" / "Application Support" / "Claude"
+                / "claude_desktop_config.json"
+            )
         case "linux":
             xdg = os.environ.get("XDG_CONFIG_HOME", str(home / ".config"))
             return Path(xdg) / "Claude" / "claude_desktop_config.json"
