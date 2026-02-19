@@ -64,6 +64,25 @@
 15. **Update affected docs**: ARCHITECTURE.md, README.md, etc.
 16. **Update MEMORY.md**: If there was a significant discovery or lesson learned
 
+### Context Window Handoff (INVIOLABLE RULE)
+
+**When context window usage reaches ~95% (less than 5% remaining), you MUST:**
+
+1. **Stop at a safe point** — never mid-edit, mid-refactor, or in a broken state. Ensure tests pass or at least the code compiles.
+2. **Commit any pending work** to the current feature branch (even if incomplete, with a `WIP:` prefix).
+3. **Create a handoff document** at `docs/handoff/YYYY-MM-DD_HHMM_session-description.md` using the template at `docs/handoff/_TEMPLATE.md`. This document MUST contain:
+   - What was accomplished this session
+   - Exactly where we stopped (file, function, line if relevant)
+   - What to do next (step-by-step to resume)
+   - Open questions or blockers
+   - All files modified this session
+4. **Update the issue doc** with current status if one is in progress.
+5. **Inform the user** that context is running low and the handoff doc was created.
+
+This rule is **non-negotiable**. A lost session with no handoff is unrecoverable work. The handoff doc IS the continuity guarantee.
+
+Handoff docs are **temporary** — delete them once the next session successfully resumes.
+
 ### Conventions
 
 - **Language**: Code in English. Comments in English. Docs in English. Agent communication in Portuguese (BR).
