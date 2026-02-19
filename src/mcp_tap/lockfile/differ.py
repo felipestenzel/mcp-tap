@@ -63,10 +63,7 @@ def diff_lockfile(
                 DriftEntry(
                     server=server.name,
                     drift_type=DriftType.EXTRA,
-                    detail=(
-                        f"Server '{server.name}' is in client config "
-                        "but not in lockfile."
-                    ),
+                    detail=(f"Server '{server.name}' is in client config but not in lockfile."),
                     severity=DriftSeverity.INFO,
                 )
             )

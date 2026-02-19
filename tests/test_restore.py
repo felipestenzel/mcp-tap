@@ -137,9 +137,7 @@ class TestNoLockfile:
         assert "configure_server" in result["hint"]
 
     @patch(_P_READ_LOCKFILE, return_value=None)
-    async def test_no_further_calls_after_no_lockfile(
-        self, mock_read: MagicMock
-    ) -> None:
+    async def test_no_further_calls_after_no_lockfile(self, mock_read: MagicMock) -> None:
         """Should not attempt to resolve config locations."""
         ctx = _make_ctx()
         with patch(_P_RESOLVE_LOCATIONS) as mock_resolve:
@@ -154,9 +152,7 @@ class TestEmptyLockfile:
     """Tests when lockfile exists but has no servers."""
 
     @patch(_P_READ_LOCKFILE)
-    async def test_returns_success_with_empty_restored(
-        self, mock_read: MagicMock
-    ) -> None:
+    async def test_returns_success_with_empty_restored(self, mock_read: MagicMock) -> None:
         """Should return success=True with empty restored list."""
         mock_read.return_value = _lockfile_with_servers()  # no servers
         ctx = _make_ctx()
@@ -278,9 +274,7 @@ class TestDryRun:
 
     @patch(_P_RESOLVE_LOCATIONS)
     @patch(_P_READ_LOCKFILE)
-    async def test_dry_run_message(
-        self, mock_read: MagicMock, mock_resolve: MagicMock
-    ) -> None:
+    async def test_dry_run_message(self, mock_read: MagicMock, mock_resolve: MagicMock) -> None:
         """Should include a message saying no changes were made."""
         mock_read.return_value = _lockfile_with_servers(pg=_locked_server())
         mock_resolve.return_value = [_fake_location()]
@@ -804,9 +798,7 @@ class TestMcpTapErrorOuter:
         assert "Invalid JSON" in result["error"]
 
     @patch(_P_READ_LOCKFILE)
-    async def test_mcp_tap_error_does_not_call_ctx_error(
-        self, mock_read: MagicMock
-    ) -> None:
+    async def test_mcp_tap_error_does_not_call_ctx_error(self, mock_read: MagicMock) -> None:
         """Should NOT call ctx.error for expected McpTapError."""
         mock_read.side_effect = McpTapError("expected error")
         ctx = _make_ctx()
@@ -1000,9 +992,7 @@ class TestBuildDryRunResult:
             env_keys=["PG_URL"],
         )
         lockfile = _lockfile_with_servers(pg=locked)
-        result = _build_dry_run_result(
-            lockfile, [_fake_location()], Path("/proj/mcp-tap.lock")
-        )
+        result = _build_dry_run_result(lockfile, [_fake_location()], Path("/proj/mcp-tap.lock"))
 
         server = result["servers"][0]
         assert server["server"] == "pg"
@@ -1031,9 +1021,7 @@ class TestBuildDryRunResult:
         from pathlib import Path
 
         lockfile = _lockfile_with_servers()
-        result = _build_dry_run_result(
-            lockfile, [_fake_location()], Path("/proj/mcp-tap.lock")
-        )
+        result = _build_dry_run_result(lockfile, [_fake_location()], Path("/proj/mcp-tap.lock"))
 
         assert result["lockfile_path"] == "/proj/mcp-tap.lock"
 
@@ -1056,9 +1044,7 @@ class TestDataFlow:
 
         await restore("/my/project", ctx, client="cursor")
 
-        mock_resolve.assert_called_once_with(
-            "cursor", scope="user", project_path="/my/project"
-        )
+        mock_resolve.assert_called_once_with("cursor", scope="user", project_path="/my/project")
 
     @patch(_P_RESOLVE_LOCATIONS)
     @patch(_P_READ_LOCKFILE)
@@ -1072,9 +1058,7 @@ class TestDataFlow:
 
         await restore("/my/project", ctx)
 
-        mock_resolve.assert_called_once_with(
-            "", scope="user", project_path="/my/project"
-        )
+        mock_resolve.assert_called_once_with("", scope="user", project_path="/my/project")
 
     @patch(_P_TEST_CONNECTION)
     @patch(_P_WRITE_CONFIG)

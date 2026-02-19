@@ -84,9 +84,7 @@ class TestNoLockfile:
     """Tests when lockfile is not found."""
 
     @patch(_PATCH_READ_LOCKFILE, return_value=None)
-    async def test_returns_error_when_no_lockfile(
-        self, mock_read: MagicMock
-    ) -> None:
+    async def test_returns_error_when_no_lockfile(self, mock_read: MagicMock) -> None:
         """Should return success=False with error message."""
         ctx = _make_ctx()
         result = await verify("/my/project", ctx)
@@ -105,9 +103,7 @@ class TestNoLockfile:
         assert "/my/project/mcp-tap.lock" in result["error"]
 
     @patch(_PATCH_READ_LOCKFILE, return_value=None)
-    async def test_no_further_calls_after_no_lockfile(
-        self, mock_read: MagicMock
-    ) -> None:
+    async def test_no_further_calls_after_no_lockfile(self, mock_read: MagicMock) -> None:
         """Should not attempt to detect clients or read config."""
         ctx = _make_ctx()
         with (
@@ -538,9 +534,7 @@ class TestErrorHandling:
     """Tests for error handling paths."""
 
     @patch(_PATCH_READ_LOCKFILE)
-    async def test_mcp_tap_error_returns_error_dict(
-        self, mock_read: MagicMock
-    ) -> None:
+    async def test_mcp_tap_error_returns_error_dict(self, mock_read: MagicMock) -> None:
         """Should catch McpTapError and return success=False."""
         mock_read.side_effect = LockfileReadError("Invalid JSON in lockfile.")
         ctx = _make_ctx()
@@ -550,9 +544,7 @@ class TestErrorHandling:
         assert "Invalid JSON" in result["error"]
 
     @patch(_PATCH_READ_LOCKFILE)
-    async def test_config_read_error_returns_error_dict(
-        self, mock_read: MagicMock
-    ) -> None:
+    async def test_config_read_error_returns_error_dict(self, mock_read: MagicMock) -> None:
         """Should catch ConfigReadError (subclass of McpTapError)."""
         mock_read.side_effect = ConfigReadError("Permission denied reading config.")
         ctx = _make_ctx()
@@ -562,9 +554,7 @@ class TestErrorHandling:
         assert "Permission denied" in result["error"]
 
     @patch(_PATCH_READ_LOCKFILE)
-    async def test_unexpected_error_returns_internal_error(
-        self, mock_read: MagicMock
-    ) -> None:
+    async def test_unexpected_error_returns_internal_error(self, mock_read: MagicMock) -> None:
         """Should catch unexpected exceptions and return generic error."""
         mock_read.side_effect = RuntimeError("something unexpected")
         ctx = _make_ctx()
@@ -575,9 +565,7 @@ class TestErrorHandling:
         assert "RuntimeError" in result["error"]
 
     @patch(_PATCH_READ_LOCKFILE)
-    async def test_unexpected_error_logs_to_ctx(
-        self, mock_read: MagicMock
-    ) -> None:
+    async def test_unexpected_error_logs_to_ctx(self, mock_read: MagicMock) -> None:
         """Should log unexpected errors via ctx.error."""
         mock_read.side_effect = ValueError("bad value")
         ctx = _make_ctx()
@@ -588,9 +576,7 @@ class TestErrorHandling:
         assert "bad value" in error_msg
 
     @patch(_PATCH_READ_LOCKFILE)
-    async def test_mcp_tap_error_does_not_log_to_ctx(
-        self, mock_read: MagicMock
-    ) -> None:
+    async def test_mcp_tap_error_does_not_log_to_ctx(self, mock_read: MagicMock) -> None:
         """Should NOT call ctx.error for expected McpTapError."""
         mock_read.side_effect = LockfileReadError("expected error")
         ctx = _make_ctx()

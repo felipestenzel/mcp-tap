@@ -96,9 +96,7 @@ class TestDiffLockfileEmpty:
         result = diff_lockfile(empty_lockfile, [])
         assert result == []
 
-    def test_empty_lockfile_with_installed_returns_extra(
-        self, empty_lockfile: Lockfile
-    ) -> None:
+    def test_empty_lockfile_with_installed_returns_extra(self, empty_lockfile: Lockfile) -> None:
         """Should detect EXTRA servers that are installed but not in lockfile."""
         installed = [_installed("postgres")]
         result = diff_lockfile(empty_lockfile, installed)
@@ -488,9 +486,7 @@ class TestToolsCheckSkipped:
             },
         )
         installed = [_installed("pg")]
-        healths = [
-            ServerHealth(name="pg", status="timeout", error="timed out")
-        ]
+        healths = [ServerHealth(name="pg", status="timeout", error="timed out")]
 
         result = diff_lockfile(lockfile, installed, healths)
         tools_drift = [e for e in result if e.drift_type == DriftType.TOOLS_CHANGED]
@@ -499,9 +495,7 @@ class TestToolsCheckSkipped:
     def test_no_locked_tools_skips_tools_check(self) -> None:
         """Should not check tools when locked server has no tools."""
         lockfile = Lockfile(
-            servers={
-                "pg": _locked_server(tools=[], tools_hash=None)
-            },
+            servers={"pg": _locked_server(tools=[], tools_hash=None)},
         )
         installed = [_installed("pg")]
         healths = [_healthy("pg", ["query", "list_tables"])]
@@ -676,9 +670,7 @@ class TestCheckToolsDrift:
     def test_added_tools_reports_drift(self) -> None:
         """Should detect added tools."""
         locked_tools = ["query"]
-        locked = _locked_server(
-            tools=locked_tools, tools_hash=compute_tools_hash(locked_tools)
-        )
+        locked = _locked_server(tools=locked_tools, tools_hash=compute_tools_hash(locked_tools))
         health = _healthy("pg", ["query", "new_tool"])
         result = _check_tools_drift("pg", locked, health)
 
@@ -690,9 +682,7 @@ class TestCheckToolsDrift:
     def test_removed_tools_reports_drift(self) -> None:
         """Should detect removed tools."""
         locked_tools = ["query", "describe"]
-        locked = _locked_server(
-            tools=locked_tools, tools_hash=compute_tools_hash(locked_tools)
-        )
+        locked = _locked_server(tools=locked_tools, tools_hash=compute_tools_hash(locked_tools))
         health = _healthy("pg", ["query"])
         result = _check_tools_drift("pg", locked, health)
 
@@ -703,9 +693,7 @@ class TestCheckToolsDrift:
     def test_both_added_and_removed(self) -> None:
         """Should include both added and removed in detail."""
         locked_tools = ["old_a", "shared"]
-        locked = _locked_server(
-            tools=locked_tools, tools_hash=compute_tools_hash(locked_tools)
-        )
+        locked = _locked_server(tools=locked_tools, tools_hash=compute_tools_hash(locked_tools))
         health = _healthy("pg", ["shared", "new_b"])
         result = _check_tools_drift("pg", locked, health)
 
@@ -719,9 +707,7 @@ class TestCheckToolsDrift:
     def test_severity_is_error(self) -> None:
         """Tools drift should always be ERROR severity."""
         locked_tools = ["query"]
-        locked = _locked_server(
-            tools=locked_tools, tools_hash=compute_tools_hash(locked_tools)
-        )
+        locked = _locked_server(tools=locked_tools, tools_hash=compute_tools_hash(locked_tools))
         health = _healthy("pg", ["completely_different"])
         result = _check_tools_drift("pg", locked, health)
 
@@ -730,9 +716,7 @@ class TestCheckToolsDrift:
     def test_detail_includes_server_name(self) -> None:
         """Detail message should include the server name."""
         locked_tools = ["query"]
-        locked = _locked_server(
-            tools=locked_tools, tools_hash=compute_tools_hash(locked_tools)
-        )
+        locked = _locked_server(tools=locked_tools, tools_hash=compute_tools_hash(locked_tools))
         health = _healthy("my-server", ["other"])
         result = _check_tools_drift("my-server", locked, health)
 
@@ -741,9 +725,7 @@ class TestCheckToolsDrift:
     def test_added_tools_are_sorted_in_detail(self) -> None:
         """Added and removed tool lists in detail should be sorted."""
         locked_tools = ["a"]
-        locked = _locked_server(
-            tools=locked_tools, tools_hash=compute_tools_hash(locked_tools)
-        )
+        locked = _locked_server(tools=locked_tools, tools_hash=compute_tools_hash(locked_tools))
         health = _healthy("pg", ["z_tool", "a_tool", "m_tool"])
         result = _check_tools_drift("pg", locked, health)
 

@@ -74,8 +74,7 @@ async def restore(
             return {
                 "success": False,
                 "error": (
-                    "No MCP client detected. Install Claude Desktop, "
-                    "Cursor, or Claude Code first."
+                    "No MCP client detected. Install Claude Desktop, Cursor, or Claude Code first."
                 ),
             }
 
@@ -93,10 +92,12 @@ async def restore(
 
             # Collect env vars that need manual setup
             if locked.config.env_keys:
-                all_env_keys.append({
-                    "server": name,
-                    "env_keys": locked.config.env_keys,
-                })
+                all_env_keys.append(
+                    {
+                        "server": name,
+                        "env_keys": locked.config.env_keys,
+                    }
+                )
 
         success_count = sum(1 for r in results if r.get("success"))
         overall_success = success_count > 0
@@ -200,15 +201,17 @@ def _build_dry_run_result(
     """Build a dry-run result showing what would be restored."""
     servers = []
     for name, locked in lockfile.servers.items():
-        servers.append({
-            "server": name,
-            "package": locked.package_identifier,
-            "registry_type": locked.registry_type,
-            "version": locked.version,
-            "command": locked.config.command,
-            "args": list(locked.config.args),
-            "env_keys": locked.config.env_keys,
-        })
+        servers.append(
+            {
+                "server": name,
+                "package": locked.package_identifier,
+                "registry_type": locked.registry_type,
+                "version": locked.version,
+                "command": locked.config.command,
+                "args": list(locked.config.args),
+                "env_keys": locked.config.env_keys,
+            }
+        )
     return {
         "success": True,
         "dry_run": True,
