@@ -33,8 +33,7 @@ def read_config(config_path: Path | str) -> dict[str, object]:
         return data
     except json.JSONDecodeError as exc:
         raise ConfigReadError(
-            f"Invalid JSON in {path}: {exc}. "
-            "Fix the JSON syntax or delete the file to start fresh."
+            f"Invalid JSON in {path}: {exc}. Fix the JSON syntax or delete the file to start fresh."
         ) from exc
     except PermissionError as exc:
         raise ConfigReadError(f"Permission denied reading {path}: {exc}") from exc

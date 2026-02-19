@@ -34,6 +34,13 @@ mcp-tap = "mcp_tap:main"
 Homepage = "https://github.com/felipestenzel/mcp-tap"
 Repository = "https://github.com/felipestenzel/mcp-tap"
 
+[dependency-groups]
+dev = [
+    "pytest>=9.0",
+    "pytest-asyncio>=1.0",
+    "ruff>=0.15",
+]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/mcp_tap"]
 

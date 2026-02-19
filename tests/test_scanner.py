@@ -180,9 +180,7 @@ class TestParseRequirementsTxt:
     async def test_handles_version_specifiers(self, tmp_path: Path):
         """Should strip version specifiers from package names."""
         (tmp_path / "requirements.txt").write_text(
-            "psycopg2-binary>=2.9.9\n"
-            "redis~=5.0\n"
-            "django==4.2.10\n"
+            "psycopg2-binary>=2.9.9\nredis~=5.0\ndjango==4.2.10\n"
         )
         techs, _ = await _parse_requirements_txt(tmp_path)
         tech_names = {t.name for t in techs}
@@ -193,11 +191,7 @@ class TestParseRequirementsTxt:
     async def test_skips_comments_and_blank_lines(self, tmp_path: Path):
         """Should ignore comments and blank lines."""
         (tmp_path / "requirements.txt").write_text(
-            "# This is a comment\n"
-            "\n"
-            "flask>=3.0\n"
-            "  # Another comment\n"
-            "\n"
+            "# This is a comment\n\nflask>=3.0\n  # Another comment\n\n"
         )
         techs, _ = await _parse_requirements_txt(tmp_path)
         tech_names = {t.name for t in techs}
@@ -208,9 +202,7 @@ class TestParseRequirementsTxt:
     async def test_skips_flags(self, tmp_path: Path):
         """Should ignore lines starting with flags like -r, -e, etc."""
         (tmp_path / "requirements.txt").write_text(
-            "-r base.txt\n"
-            "-e git+https://example.com/repo.git\n"
-            "flask>=3.0\n"
+            "-r base.txt\n-e git+https://example.com/repo.git\nflask>=3.0\n"
         )
         techs, _ = await _parse_requirements_txt(tmp_path)
         tech_names = {t.name for t in techs}
@@ -253,11 +245,7 @@ class TestParseDockerCompose:
 
     async def test_handles_various_compose_filenames(self, tmp_path: Path):
         """Should detect technologies from compose.yaml (alternative filename)."""
-        (tmp_path / "compose.yaml").write_text(
-            "services:\n"
-            "  db:\n"
-            "    image: mongo:7\n"
-        )
+        (tmp_path / "compose.yaml").write_text("services:\n  db:\n    image: mongo:7\n")
         techs, _ = await _parse_docker_compose(tmp_path)
         tech_names = {t.name for t in techs}
         assert "mongodb" in tech_names
@@ -265,9 +253,7 @@ class TestParseDockerCompose:
     async def test_handles_image_with_registry_prefix(self, tmp_path: Path):
         """Should match known image fragments inside full image URIs."""
         (tmp_path / "docker-compose.yml").write_text(
-            "services:\n"
-            "  mq:\n"
-            "    image: 'bitnami/rabbitmq:3.12'\n"
+            "services:\n  mq:\n    image: 'bitnami/rabbitmq:3.12'\n"
         )
         techs, _ = await _parse_docker_compose(tmp_path)
         tech_names = {t.name for t in techs}
@@ -400,9 +386,7 @@ class TestMalformedInputHandling:
         techs_dc, _ = await _parse_docker_compose(EMPTY)
         techs_env, env_vars = await _parse_env_files(EMPTY)
 
-        assert all(
-            t == [] for t in [techs_json, techs_toml, techs_req, techs_dc, techs_env]
-        )
+        assert all(t == [] for t in [techs_json, techs_toml, techs_req, techs_dc, techs_env])
         assert env_vars == []
 
     async def test_json_with_wrong_type_for_deps(self, tmp_path: Path):
@@ -416,9 +400,7 @@ class TestMalformedInputHandling:
 
     async def test_toml_with_no_project_section(self, tmp_path: Path):
         """Should handle pyproject.toml with no [project] section."""
-        (tmp_path / "pyproject.toml").write_text(
-            '[build-system]\nrequires = ["hatchling"]\n'
-        )
+        (tmp_path / "pyproject.toml").write_text('[build-system]\nrequires = ["hatchling"]\n')
         techs, _ = await _parse_pyproject_toml(tmp_path)
         # Should still detect Python
         tech_names = {t.name for t in techs}
@@ -534,9 +516,7 @@ class TestMatchHelpers:
 
     def test_match_env_patterns_deduplicates(self):
         """Multiple POSTGRES-prefixed vars should produce only one technology."""
-        techs = _match_env_patterns(
-            ["POSTGRES_HOST", "POSTGRES_PORT", "POSTGRES_DB"], ".env"
-        )
+        techs = _match_env_patterns(["POSTGRES_HOST", "POSTGRES_PORT", "POSTGRES_DB"], ".env")
         pg_techs = [t for t in techs if t.name == "postgresql"]
         assert len(pg_techs) == 1
 
@@ -666,7 +646,8 @@ class TestScanMinimalProject:
         """Should not recommend database servers for a minimal project."""
         profile = await scan_project(str(MINIMAL))
         db_recs = [
-            r for r in profile.recommendations
+            r
+            for r in profile.recommendations
             if r.server_name in ("postgres-mcp", "redis-mcp", "mongodb-mcp", "mysql-mcp")
         ]
         assert db_recs == []
@@ -736,9 +717,13 @@ class TestRecommendServers:
         techs = []
         if tech_names:
             for name, category in tech_names:
-                techs.append(DetectedTechnology(
-                    name=name, category=category, source_file="test",
-                ))
+                techs.append(
+                    DetectedTechnology(
+                        name=name,
+                        category=category,
+                        source_file="test",
+                    )
+                )
         return ProjectProfile(path="/tmp/test", technologies=techs)
 
     def test_recommend_postgres(self):
@@ -758,10 +743,12 @@ class TestRecommendServers:
 
     def test_recommend_multiple(self):
         """Should recommend multiple servers for multiple technologies."""
-        profile = self._make_profile([
-            ("postgresql", TechnologyCategory.DATABASE),
-            ("redis", TechnologyCategory.DATABASE),
-        ])
+        profile = self._make_profile(
+            [
+                ("postgresql", TechnologyCategory.DATABASE),
+                ("redis", TechnologyCategory.DATABASE),
+            ]
+        )
         recs = recommend_servers(profile)
         rec_names = {r.server_name for r in recs}
         assert "postgres-mcp" in rec_names
@@ -797,10 +784,12 @@ class TestRecommendServers:
 
     def test_recommendations_sorted_by_priority(self):
         """Should sort recommendations: high > medium > low."""
-        profile = self._make_profile([
-            ("postgresql", TechnologyCategory.DATABASE),
-            ("redis", TechnologyCategory.DATABASE),
-        ])
+        profile = self._make_profile(
+            [
+                ("postgresql", TechnologyCategory.DATABASE),
+                ("redis", TechnologyCategory.DATABASE),
+            ]
+        )
         recs = recommend_servers(profile)
         priorities = [r.priority for r in recs]
         # High should come before medium, medium before low

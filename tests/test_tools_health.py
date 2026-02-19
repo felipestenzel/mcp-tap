@@ -237,7 +237,8 @@ class TestHealthServerDetails:
         mock_detect.return_value = [_fake_location()]
         mock_parse.return_value = [_installed_server("pg-mcp")]
         mock_test_conn.return_value = _ok_connection(
-            "pg-mcp", tools=["read_query", "write_query"],
+            "pg-mcp",
+            tools=["read_query", "write_query"],
         )
 
         ctx = _make_ctx()
@@ -264,7 +265,8 @@ class TestHealthServerDetails:
         mock_detect.return_value = [_fake_location()]
         mock_parse.return_value = [_installed_server("broken-mcp")]
         mock_test_conn.return_value = _failed_connection(
-            "broken-mcp", error="Connection refused",
+            "broken-mcp",
+            error="Connection refused",
         )
 
         ctx = _make_ctx()
@@ -394,7 +396,8 @@ class TestCheckAllServersExceptionHandling:
 
     @patch("mcp_tap.tools.health.test_server_connection")
     async def test_exception_in_one_server_does_not_block_others(
-        self, mock_test_conn: AsyncMock,
+        self,
+        mock_test_conn: AsyncMock,
     ):
         """Should handle exception from one server and still check the rest."""
         servers = [
@@ -425,7 +428,8 @@ class TestCheckSingleServer:
         """Should return ServerHealth with status='healthy' on success."""
         server = _installed_server("pg-mcp")
         mock_test_conn.return_value = _ok_connection(
-            "pg-mcp", tools=["read_query"],
+            "pg-mcp",
+            tools=["read_query"],
         )
 
         result = await _check_single_server(server, timeout_seconds=15)
@@ -440,7 +444,8 @@ class TestCheckSingleServer:
         """Should return ServerHealth with status='unhealthy' on failure."""
         server = _installed_server("broken-mcp")
         mock_test_conn.return_value = _failed_connection(
-            "broken-mcp", error="Command not found: npx",
+            "broken-mcp",
+            error="Command not found: npx",
         )
 
         result = await _check_single_server(server, timeout_seconds=15)
@@ -470,7 +475,8 @@ class TestHealthUnexpectedErrors:
         side_effect=RuntimeError("filesystem exploded"),
     )
     async def test_unexpected_error_returns_error_dict(
-        self, _mock_detect: MagicMock,
+        self,
+        _mock_detect: MagicMock,
     ):
         """Should return error dict for unexpected exceptions."""
         ctx = _make_ctx()
@@ -485,7 +491,8 @@ class TestHealthUnexpectedErrors:
         side_effect=McpTapError("config broken"),
     )
     async def test_mcp_tap_error_returns_error_dict(
-        self, _mock_detect: MagicMock,
+        self,
+        _mock_detect: MagicMock,
     ):
         """Should return error dict for McpTapError."""
         ctx = _make_ctx()

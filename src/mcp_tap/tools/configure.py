@@ -61,16 +61,18 @@ async def configure_server(
         # Step 1: Resolve client config path
         location = _resolve_client_location(client)
         if location is None:
-            return asdict(ConfigureResult(
-                success=False,
-                server_name=server_name,
-                config_file="",
-                message=(
-                    "No MCP client detected. Install Claude Desktop, "
-                    "Cursor, or Claude Code first."
-                ),
-                install_status="skipped",
-            ))
+            return asdict(
+                ConfigureResult(
+                    success=False,
+                    server_name=server_name,
+                    config_file="",
+                    message=(
+                        "No MCP client detected. Install Claude Desktop, "
+                        "Cursor, or Claude Code first."
+                    ),
+                    install_status="skipped",
+                )
+            )
 
         # Step 2: Resolve installer and install the package
         rt = RegistryType(registry_type)
@@ -80,16 +82,18 @@ async def configure_server(
         install_result = await installer.install(package_identifier, version)
 
         if not install_result.success:
-            return asdict(ConfigureResult(
-                success=False,
-                server_name=server_name,
-                config_file=location.path,
-                message=(
-                    f"Package installation failed: {install_result.message}. "
-                    "Config was NOT written to avoid a broken entry."
-                ),
-                install_status="failed",
-            ))
+            return asdict(
+                ConfigureResult(
+                    success=False,
+                    server_name=server_name,
+                    config_file=location.path,
+                    message=(
+                        f"Package installation failed: {install_result.message}. "
+                        "Config was NOT written to avoid a broken entry."
+                    ),
+                    install_status="failed",
+                )
+            )
 
         install_status = "installed"
         logger.info("Package %s installed successfully", package_identifier)
@@ -136,39 +140,45 @@ async def configure_server(
                 test_result.error,
             )
 
-        return asdict(ConfigureResult(
-            success=True,
-            server_name=server_name,
-            config_file=location.path,
-            message=(
-                f"Server '{server_name}' installed and added to "
-                f"{location.client.value} config at {location.path}."
-                f"{tool_summary} "
-                "Restart your MCP client to load it."
-            ),
-            config_written=server_config.to_dict(),
-            install_status=install_status,
-            tools_discovered=tools_discovered,
-            validation_passed=validation_passed,
-        ))
+        return asdict(
+            ConfigureResult(
+                success=True,
+                server_name=server_name,
+                config_file=location.path,
+                message=(
+                    f"Server '{server_name}' installed and added to "
+                    f"{location.client.value} config at {location.path}."
+                    f"{tool_summary} "
+                    "Restart your MCP client to load it."
+                ),
+                config_written=server_config.to_dict(),
+                install_status=install_status,
+                tools_discovered=tools_discovered,
+                validation_passed=validation_passed,
+            )
+        )
 
     except McpTapError as exc:
-        return asdict(ConfigureResult(
-            success=False,
-            server_name=server_name,
-            config_file="",
-            message=str(exc),
-            install_status="failed",
-        ))
+        return asdict(
+            ConfigureResult(
+                success=False,
+                server_name=server_name,
+                config_file="",
+                message=str(exc),
+                install_status="failed",
+            )
+        )
     except Exception as exc:
         await ctx.error(f"Unexpected error in configure_server: {exc}")
-        return asdict(ConfigureResult(
-            success=False,
-            server_name=server_name,
-            config_file="",
-            message=f"Internal error: {type(exc).__name__}",
-            install_status="failed",
-        ))
+        return asdict(
+            ConfigureResult(
+                success=False,
+                server_name=server_name,
+                config_file="",
+                message=f"Internal error: {type(exc).__name__}",
+                install_status="failed",
+            )
+        )
 
 
 def _resolve_client_location(client: str) -> ConfigLocation | None:

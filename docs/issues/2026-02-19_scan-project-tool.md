@@ -1,7 +1,7 @@
 # scan_project MCP Tool
 
 - **Date**: 2026-02-19
-- **Status**: `open`
+- **Status**: `done`
 - **Branch**: `feature/2026-02-19-scan-project-tool`
 - **Priority**: `critical`
 - **Issue**: #2

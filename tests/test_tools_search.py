@@ -120,8 +120,7 @@ class TestSearchBackwardCompatible:
         ctx = _make_ctx()
         ctx.request_context.lifespan_context.registry.search = AsyncMock(
             return_value=[
-                _make_registry_server(f"server-{i}", f"Description {i}")
-                for i in range(5)
+                _make_registry_server(f"server-{i}", f"Description {i}") for i in range(5)
             ]
         )
 

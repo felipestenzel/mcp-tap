@@ -111,7 +111,8 @@ class TestScanReturnsRecommendations:
 
     @patch("mcp_tap.tools.scan._get_installed_server_names", return_value=set())
     async def test_recommendations_have_already_installed_field(
-        self, _mock_installed: MagicMock,
+        self,
+        _mock_installed: MagicMock,
     ):
         """Should add 'already_installed' boolean to each recommendation."""
         ctx = _make_ctx()
@@ -123,7 +124,8 @@ class TestScanReturnsRecommendations:
 
     @patch("mcp_tap.tools.scan._get_installed_server_names", return_value=set())
     async def test_recommendations_have_registry_type_as_string(
-        self, _mock_installed: MagicMock,
+        self,
+        _mock_installed: MagicMock,
     ):
         """Should serialize registry_type as a plain string."""
         ctx = _make_ctx()
@@ -295,7 +297,9 @@ class TestScanDefaultPath:
     @patch("mcp_tap.tools.scan._get_installed_server_names", return_value=set())
     @patch("mcp_tap.tools.scan._scan_project")
     async def test_default_path_is_dot(
-        self, mock_scan: AsyncMock, _mock_installed: MagicMock,
+        self,
+        mock_scan: AsyncMock,
+        _mock_installed: MagicMock,
     ):
         """Should pass '.' to the scanner when no path is specified."""
         # We need to give scan_project a valid-looking profile to avoid errors

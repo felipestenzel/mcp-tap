@@ -45,9 +45,7 @@ async def scan_project(path: str) -> ProjectProfile:
     """
     root = Path(path).resolve()
     if not root.is_dir():
-        raise ScanError(
-            f"Cannot scan '{root}': path does not exist or is not a directory."
-        )
+        raise ScanError(f"Cannot scan '{root}': path does not exist or is not a directory.")
 
     technologies: list[DetectedTechnology] = []
     env_var_names: list[str] = []
@@ -116,11 +114,13 @@ async def _parse_package_json(root: Path) -> _ParseResult:
     source = str(filepath.relative_to(root))
 
     # Node.js itself
-    techs.append(DetectedTechnology(
-        name="node.js",
-        category=TechnologyCategory.LANGUAGE,
-        source_file=source,
-    ))
+    techs.append(
+        DetectedTechnology(
+            name="node.js",
+            category=TechnologyCategory.LANGUAGE,
+            source_file=source,
+        )
+    )
 
     # Merge all dependency sections
     all_deps: set[str] = set()
@@ -153,11 +153,13 @@ async def _parse_pyproject_toml(root: Path) -> _ParseResult:
     source = str(filepath.relative_to(root))
 
     # Python itself
-    techs.append(DetectedTechnology(
-        name="python",
-        category=TechnologyCategory.LANGUAGE,
-        source_file=source,
-    ))
+    techs.append(
+        DetectedTechnology(
+            name="python",
+            category=TechnologyCategory.LANGUAGE,
+            source_file=source,
+        )
+    )
 
     # Collect dependency names from [project.dependencies]
     dep_names: set[str] = set()
@@ -199,11 +201,13 @@ async def _parse_requirements_txt(root: Path) -> _ParseResult:
 
         # Add Python language detection (only once across all req files)
         if not any(t.name == "python" for t in techs):
-            techs.append(DetectedTechnology(
-                name="python",
-                category=TechnologyCategory.LANGUAGE,
-                source_file=source,
-            ))
+            techs.append(
+                DetectedTechnology(
+                    name="python",
+                    category=TechnologyCategory.LANGUAGE,
+                    source_file=source,
+                )
+            )
 
         dep_names: set[str] = set()
         for line in text.splitlines():
@@ -289,18 +293,22 @@ async def _detect_git_hosting(root: Path) -> _ParseResult:
     techs: list[DetectedTechnology] = []
 
     if (root / ".github").is_dir():
-        techs.append(DetectedTechnology(
-            name="github",
-            category=TechnologyCategory.SERVICE,
-            source_file=".github/",
-        ))
+        techs.append(
+            DetectedTechnology(
+                name="github",
+                category=TechnologyCategory.SERVICE,
+                source_file=".github/",
+            )
+        )
 
     if (root / ".gitlab-ci.yml").is_file():
-        techs.append(DetectedTechnology(
-            name="gitlab",
-            category=TechnologyCategory.SERVICE,
-            source_file=".gitlab-ci.yml",
-        ))
+        techs.append(
+            DetectedTechnology(
+                name="gitlab",
+                category=TechnologyCategory.SERVICE,
+                source_file=".gitlab-ci.yml",
+            )
+        )
 
     return techs, []
 
@@ -317,19 +325,23 @@ async def _detect_language_files(root: Path) -> _ParseResult:
 
     for filename, language in language_markers.items():
         if (root / filename).is_file():
-            techs.append(DetectedTechnology(
-                name=language,
-                category=TechnologyCategory.LANGUAGE,
-                source_file=filename,
-            ))
+            techs.append(
+                DetectedTechnology(
+                    name=language,
+                    category=TechnologyCategory.LANGUAGE,
+                    source_file=filename,
+                )
+            )
 
     if (root / "Makefile").is_file():
-        techs.append(DetectedTechnology(
-            name="make",
-            category=TechnologyCategory.PLATFORM,
-            source_file="Makefile",
-            confidence=0.8,
-        ))
+        techs.append(
+            DetectedTechnology(
+                name="make",
+                category=TechnologyCategory.PLATFORM,
+                source_file="Makefile",
+                confidence=0.8,
+            )
+        )
 
     return techs, []
 
@@ -339,25 +351,31 @@ async def _detect_platform_files(root: Path) -> _ParseResult:
     techs: list[DetectedTechnology] = []
 
     if (root / "vercel.json").is_file():
-        techs.append(DetectedTechnology(
-            name="vercel",
-            category=TechnologyCategory.PLATFORM,
-            source_file="vercel.json",
-        ))
+        techs.append(
+            DetectedTechnology(
+                name="vercel",
+                category=TechnologyCategory.PLATFORM,
+                source_file="vercel.json",
+            )
+        )
 
     if (root / "netlify.toml").is_file():
-        techs.append(DetectedTechnology(
-            name="netlify",
-            category=TechnologyCategory.PLATFORM,
-            source_file="netlify.toml",
-        ))
+        techs.append(
+            DetectedTechnology(
+                name="netlify",
+                category=TechnologyCategory.PLATFORM,
+                source_file="netlify.toml",
+            )
+        )
 
     if (root / "Dockerfile").is_file():
-        techs.append(DetectedTechnology(
-            name="docker",
-            category=TechnologyCategory.PLATFORM,
-            source_file="Dockerfile",
-        ))
+        techs.append(
+            DetectedTechnology(
+                name="docker",
+                category=TechnologyCategory.PLATFORM,
+                source_file="Dockerfile",
+            )
+        )
 
     return techs, []
 
@@ -469,11 +487,13 @@ def _match_node_deps(
         mapping = _NODE_DEP_MAP.get(dep_name.lower())
         if mapping is not None:
             tech_name, category = mapping
-            techs.append(DetectedTechnology(
-                name=tech_name,
-                category=category,
-                source_file=source_file,
-            ))
+            techs.append(
+                DetectedTechnology(
+                    name=tech_name,
+                    category=category,
+                    source_file=source_file,
+                )
+            )
     return techs
 
 
@@ -487,11 +507,13 @@ def _match_python_deps(
         mapping = _PYTHON_DEP_MAP.get(dep_name.lower())
         if mapping is not None:
             tech_name, category = mapping
-            techs.append(DetectedTechnology(
-                name=tech_name,
-                category=category,
-                source_file=source_file,
-            ))
+            techs.append(
+                DetectedTechnology(
+                    name=tech_name,
+                    category=category,
+                    source_file=source_file,
+                )
+            )
     return techs
 
 
@@ -507,11 +529,13 @@ def _match_docker_image(
     techs: list[DetectedTechnology] = []
     for fragment, (tech_name, category) in _DOCKER_IMAGE_MAP.items():
         if fragment in image_name:
-            techs.append(DetectedTechnology(
-                name=tech_name,
-                category=category,
-                source_file=source_file,
-            ))
+            techs.append(
+                DetectedTechnology(
+                    name=tech_name,
+                    category=category,
+                    source_file=source_file,
+                )
+            )
     return techs
 
 
@@ -526,12 +550,14 @@ def _match_env_patterns(
         for pattern, tech_name, category in _ENV_PATTERNS:
             if pattern.search(var_name) and tech_name not in seen:
                 seen.add(tech_name)
-                techs.append(DetectedTechnology(
-                    name=tech_name,
-                    category=category,
-                    source_file=source_file,
-                    confidence=0.7,
-                ))
+                techs.append(
+                    DetectedTechnology(
+                        name=tech_name,
+                        category=category,
+                        source_file=source_file,
+                        confidence=0.7,
+                    )
+                )
     return techs
 
 

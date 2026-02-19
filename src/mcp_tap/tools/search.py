@@ -59,9 +59,7 @@ async def search_servers(
                             is_official=server.is_official,
                             updated_at=server.updated_at,
                             env_vars_required=[
-                                ev.name
-                                for ev in pkg.environment_variables
-                                if ev.is_required
+                                ev.name for ev in pkg.environment_variables if ev.is_required
                             ],
                             repository_url=server.repository_url,
                         )
