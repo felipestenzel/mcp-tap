@@ -117,9 +117,23 @@ async def configure_server(
 
         # Step 4: Write config to each target client
         if len(locations) == 1:
-            return await _configure_single(server_name, server_config, locations[0], ctx)
+            result = await _configure_single(server_name, server_config, locations[0], ctx)
+        else:
+            result = await _configure_multi(server_name, server_config, locations, ctx)
 
-        return await _configure_multi(server_name, server_config, locations, ctx)
+        # Step 5: Update lockfile if project_path is available
+        if project_path and result.get("success"):
+            _update_lockfile(
+                project_path=project_path,
+                server_name=server_name,
+                package_identifier=package_identifier,
+                registry_type=registry_type,
+                version=version,
+                server_config=server_config,
+                tools=result.get("tools_discovered", []),
+            )
+
+        return result
 
     except McpTapError as exc:
         return asdict(
@@ -366,6 +380,32 @@ async def _try_heal(
         )
 
     return False, server_config, info
+
+
+def _update_lockfile(
+    project_path: str,
+    server_name: str,
+    package_identifier: str,
+    registry_type: str,
+    version: str,
+    server_config: ServerConfig,
+    tools: list[str],
+) -> None:
+    """Best-effort lockfile update after successful configure."""
+    try:
+        from mcp_tap.lockfile.writer import add_server_to_lockfile
+
+        add_server_to_lockfile(
+            project_path=project_path,
+            name=server_name,
+            package_identifier=package_identifier,
+            registry_type=registry_type,
+            version=version,
+            server_config=server_config,
+            tools=tools or None,
+        )
+    except Exception:
+        logger.debug("Failed to update lockfile", exc_info=True)
 
 
 def _parse_env_vars(env_vars: str) -> dict[str, str]:
