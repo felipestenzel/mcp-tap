@@ -7,3 +7,26 @@
 - All I/O: async (httpx, asyncio subprocess)
 - Imports: always `from __future__ import annotations`
 - `PackageInstaller` Protocol in `installer/base.py`
+
+## Ruff / Linting
+- ruff not in PATH by default — use `uv run ruff check ...` or install via `uv pip install ruff`
+- ruff enforces single blank line between imports block and first code (not double blank)
+- Target Python 3.11: cannot use `type X = ...` (PEP 695) — use plain assignment for TypeAlias
+- ruff selects: E, F, W, I, UP, B, SIM, RUF
+
+## Architecture Patterns
+- Domain models in `models.py` (zero deps), errors in `errors.py`
+- Scanner package: `scanner/{__init__, detector, recommendations}.py`
+- `scan_project(path: str) -> ProjectProfile` is the scanner public entry point
+- All parsers return `tuple[list[DetectedTechnology], list[str]]` (techs, env_vars)
+- Parsers run concurrently via `asyncio.gather(return_exceptions=True)`
+- File reads use `asyncio.to_thread(filepath.read_text, encoding="utf-8")`
+- Docker-compose parsed via regex (no PyYAML dep)
+- `tomllib` from stdlib for TOML (Python 3.11+)
+- Use `dataclasses.replace()` for immutable updates on frozen dataclasses
+
+## Conventions
+- Commit messages: English, no Co-Authored-By (per CLAUDE.md)
+- Comments/code in English, agent communication in Portuguese (BR)
+- Branch naming: `feature/YYYY-MM-DD-description`
+- Line length: 100 chars

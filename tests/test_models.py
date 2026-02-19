@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from mcp_tap.models import ServerConfig, Transport
+from mcp_tap.models import ServerConfig
 
 
 class TestServerConfig:

@@ -37,3 +37,7 @@ class InstallerNotFoundError(McpTapError):
 
 class InstallError(McpTapError):
     """Package installation failed."""
+
+
+class ScanError(McpTapError):
+    """Error scanning a project directory."""

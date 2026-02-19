@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import StrEnum
 
-
 # ─── Enumerations ─────────────────────────────────────────────
 
 
@@ -152,3 +151,45 @@ class RemoveResult:
     config_file: str = ""
     uninstalled_package: bool = False
     message: str = ""
+
+
+# ─── Scanner Models ──────────────────────────────────────────
+
+
+class TechnologyCategory(StrEnum):
+    LANGUAGE = "language"
+    FRAMEWORK = "framework"
+    DATABASE = "database"
+    SERVICE = "service"
+    PLATFORM = "platform"
+
+
+@dataclass(frozen=True, slots=True)
+class DetectedTechnology:
+    """A technology detected by scanning project files."""
+
+    name: str
+    category: TechnologyCategory
+    source_file: str
+    confidence: float = 1.0
+
+
+@dataclass(frozen=True, slots=True)
+class ServerRecommendation:
+    """A recommended MCP server based on detected project technologies."""
+
+    server_name: str
+    package_identifier: str
+    registry_type: RegistryType
+    reason: str
+    priority: str  # "high", "medium", "low"
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectProfile:
+    """Aggregated scan result describing a project's technology stack."""
+
+    path: str
+    technologies: list[DetectedTechnology] = field(default_factory=list)
+    env_var_names: list[str] = field(default_factory=list)
+    recommendations: list[ServerRecommendation] = field(default_factory=list)
