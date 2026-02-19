@@ -13,7 +13,6 @@ from mcp_tap.errors import McpTapError
 from mcp_tap.models import MCPClient
 from mcp_tap.scanner.credentials import map_credentials
 from mcp_tap.scanner.detector import scan_project as _scan_project
-from mcp_tap.scanner.recommendations import CLIENT_NATIVE_CAPABILITIES
 
 
 async def scan_project(
@@ -92,13 +91,15 @@ async def scan_project(
             env_var_count=len(profile.env_var_names),
         )
 
-        # Build native capabilities list for the detected client
-        native_caps = _get_native_capabilities(resolved_client)
-
         return {
             "path": profile.path,
             "client": resolved_client.value if resolved_client else "unknown",
-            "native_capabilities": native_caps,
+            "self_check": (
+                "BEFORE recommending any server, compare it against YOUR OWN "
+                "native tools. If you already have a tool that does the same thing, "
+                "only recommend the MCP if it adds significant NEW capability. "
+                "Explain what it adds that you cannot do natively."
+            ),
             "detected_technologies": technologies,
             "env_vars_found": profile.env_var_names,
             "recommendations": recommendations,
@@ -112,31 +113,6 @@ async def scan_project(
     except Exception as exc:
         await ctx.error(f"Unexpected error in scan_project: {exc}")
         return {"success": False, "error": f"Internal error: {type(exc).__name__}"}
-
-
-def _get_native_capabilities(client: MCPClient | None) -> list[dict[str, str]]:
-    """Build a list of native capabilities for the detected client.
-
-    This is included in the scan output so the LLM sees it as DATA,
-    not just instructions. Each entry describes a capability the client
-    already has natively, so no MCP server is needed for it.
-    """
-    if not client:
-        return []
-    capabilities = CLIENT_NATIVE_CAPABILITIES.get(client, [])
-    return [
-        {
-            "capability": ", ".join(cap.keywords),
-            "native_tool": cap.reason,
-            "do_not_recommend": (
-                f"Do NOT recommend any MCP server related to "
-                f"{', '.join(cap.keywords)} — {cap.reason}. "
-                f"This applies to ALL packages matching these keywords, "
-                f"regardless of publisher or package name."
-            ),
-        }
-        for cap in capabilities
-    ]
 
 
 def _resolve_client(client: str | None) -> MCPClient | None:
