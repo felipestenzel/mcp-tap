@@ -24,17 +24,25 @@ async def remove_server(
 ) -> dict[str, object]:
     """Remove an MCP server from your AI client's configuration.
 
+    Removes the server entry from the config file. The user must restart
+    their MCP client for the change to take effect.
+
+    Use list_installed to see server names. Use clients="all" to remove
+    from every configured client at once.
+
     Args:
-        server_name: Name of the server to remove (as shown by list_installed).
+        server_name: Exact name of the server to remove, as shown by
+            list_installed.
         clients: Target MCP client(s). Comma-separated names like
             "claude_desktop,cursor", "all" for every detected client,
             or empty to auto-detect.
-        scope: "user" for global config (default), "project" for project-scoped.
-        project_path: Path to the project directory. Required when scope="project".
+        scope: "user" for global config (default), "project" for
+            project-scoped config.
+        project_path: Project directory path. Required when scope="project".
 
     Returns:
-        Removal result showing what was removed. When removing from multiple
-        clients, includes per_client_results.
+        Result with success status and message. Multi-client calls also
+        include per_client_results with per-client removal status.
     """
     try:
         locations = resolve_config_locations(clients, scope=scope, project_path=project_path)

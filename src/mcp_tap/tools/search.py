@@ -22,21 +22,25 @@ async def search_servers(
 ) -> list[dict[str, object]]:
     """Search the MCP Registry for servers matching a keyword.
 
-    When project_path is provided, results are scored and sorted by relevance
-    to the project's detected technology stack. Each result is tagged with a
-    ``relevance`` field ("high", "medium", or "low") and a ``match_reason``
-    explaining the score.
+    Use this when the user asks for a specific server or technology.
+    Pass project_path to automatically rank results by relevance to the
+    project's detected tech stack — each result gets a "relevance" field
+    ("high", "medium", "low") and a "match_reason" explaining the score.
+
+    After finding the right server, use configure_server with the
+    package_identifier and registry_type from the results to install it.
 
     Args:
-        query: Search term (e.g. "postgres", "github", "slack").
-        limit: Maximum number of results to return (1-50, default 10).
-        project_path: Optional path to a project directory. When provided,
-            the project is scanned and results are ranked by relevance to
-            the detected tech stack.
+        query: Search term (e.g. "postgres", "github", "slack", "docker").
+        limit: Maximum results to return (1-50, default 10).
+        project_path: Optional project directory path. When provided,
+            results are ranked by relevance to the detected tech stack.
 
     Returns:
-        List of matching servers with name, description, package info,
-        required environment variables, and repository URL.
+        List of servers, each with: name, description, version,
+        registry_type, package_identifier, transport, is_official,
+        env_vars_required, and repository_url. When project_path is set,
+        also includes relevance and match_reason.
     """
     try:
         app_ctx = ctx.request_context.lifespan_context

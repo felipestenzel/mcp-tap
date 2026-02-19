@@ -19,22 +19,26 @@ async def scan_project(
     path: str = ".",
     client: str | None = None,
 ) -> dict[str, object]:
-    """Scan a project directory to detect your tech stack and recommend MCP servers.
+    """Scan a project directory to detect the tech stack and recommend MCP servers.
 
-    Analyzes project files (package.json, pyproject.toml, docker-compose.yml,
-    .env, etc.) to identify the technologies in use, then recommends MCP servers
-    that would be useful for that stack. Cross-references with your currently
-    installed servers to show what's missing.
+    This is the best starting point. Analyzes project files (package.json,
+    pyproject.toml, docker-compose.yml, .env, Dockerfile, etc.) to identify
+    languages, frameworks, databases, and services in use, then recommends
+    MCP servers that would be useful for that stack.
+
+    Results are cross-referenced with already-installed servers so you can
+    see what's missing. Use configure_server to install recommended servers.
 
     Args:
-        path: Path to the project directory to scan. Defaults to ".".
-        client: Which MCP client's config to check for already-installed servers.
-            One of "claude_desktop", "claude_code", "cursor", "windsurf".
-            If not provided, auto-detects.
+        path: Path to the project directory to scan. Defaults to current
+            directory (".").
+        client: Which MCP client's config to check for already-installed
+            servers. One of "claude_desktop", "claude_code", "cursor",
+            "windsurf". Auto-detects if not provided.
 
     Returns:
-        Scan results with detected technologies, environment variables,
-        recommended MCP servers, and which ones are already installed.
+        Dict with: detected_technologies, env_vars_found, recommendations
+        (each with already_installed flag), and a human-readable summary.
     """
     try:
         profile = await _scan_project(path)

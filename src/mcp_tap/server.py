@@ -42,12 +42,32 @@ async def app_lifespan(server: FastMCP) -> AsyncIterator[AppContext]:
 mcp = FastMCP(
     "mcp-tap",
     instructions=(
-        "This server helps you discover, install, and configure MCP servers. "
-        "Use scan_project to detect your tech stack and get recommendations, "
-        "search_servers to find servers (pass project_path for context-aware ranking), "
-        "configure_server to install and add them to your MCP client config, "
-        "test_connection to verify one server, check_health to verify all servers, "
-        "list_installed to see what's configured, and remove_server to clean up."
+        "mcp-tap discovers, installs, and configures MCP servers for the user. "
+        "\n\n"
+        "## Recommended workflow\n"
+        "1. **scan_project** — Start here. Scans the user's project to detect their "
+        "tech stack (languages, frameworks, databases, services) and recommends "
+        "MCP servers they should install. Shows what's already installed vs missing.\n"
+        "2. **search_servers** — Search the MCP Registry by keyword. Pass "
+        "project_path to rank results by relevance to the project's stack.\n"
+        "3. **configure_server** — Install a package and add it to the client "
+        "config. Handles npm/pip/docker install, config write, and connection "
+        "validation in one step. Use clients='all' to configure all clients at once, "
+        "or scope='project' for project-scoped config.\n"
+        "4. **check_health** — Verify all configured servers are working. "
+        "Tests each one concurrently and reports healthy/unhealthy/timeout.\n"
+        "\n"
+        "## Other tools\n"
+        "- **list_installed** — Show all configured servers (secrets are masked).\n"
+        "- **test_connection** — Test a single server by name.\n"
+        "- **remove_server** — Remove a server from config. Supports multi-client.\n"
+        "\n"
+        "## Tips\n"
+        "- If configure_server validation fails, the config is still written. "
+        "The user may need to set environment variables or restart their client.\n"
+        "- If a server fails health check, try remove_server then configure_server "
+        "again to reinstall.\n"
+        "- Supported clients: claude_desktop, claude_code, cursor, windsurf."
     ),
     lifespan=app_lifespan,
 )

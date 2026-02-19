@@ -25,19 +25,26 @@ async def check_health(
     client: str | None = None,
     timeout_seconds: int = 15,
 ) -> dict[str, object]:
-    """Check the health of all installed MCP servers.
+    """Check the health of all configured MCP servers at once.
 
-    Reads all configured servers from your MCP client config, tests each one
-    concurrently by spawning it and calling list_tools(), and returns a health
-    report showing which servers are healthy, unhealthy, or timed out.
+    Reads every server from your MCP client config, tests them all
+    concurrently (spawns each, connects via MCP protocol, calls
+    list_tools()), and returns a health report.
+
+    Use this after configure_server to verify everything is working,
+    or as a periodic health check. For unhealthy servers, try
+    remove_server followed by configure_server to reinstall.
 
     Args:
-        client: Which MCP client's config to check. One of "claude_desktop",
-            "claude_code", "cursor", "windsurf". Auto-detects if not specified.
-        timeout_seconds: How long to wait for each server to respond (5-60).
+        client: Which MCP client's config to check. One of
+            "claude_desktop", "claude_code", "cursor", "windsurf".
+            Auto-detects if not specified.
+        timeout_seconds: Max seconds to wait per server (clamped to 5-60).
+            Default 15. Increase if servers are slow to start.
 
     Returns:
-        Health report with total/healthy/unhealthy counts and per-server details.
+        Health report with: client, config_file, total/healthy/unhealthy
+        counts, and per-server details (status, tools count, error).
     """
     try:
         if client:
