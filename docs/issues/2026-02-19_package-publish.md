@@ -1,7 +1,7 @@
 # Package and Publish — PyPI + npm Wrapper
 
 - **Date**: 2026-02-19
-- **Status**: `open`
+- **Status**: `in-progress`
 - **Branch**: `feature/2026-02-19-publish`
 - **Priority**: `medium`
 - **Issue**: #9
@@ -51,16 +51,25 @@ N/A — final packaging step.
 
 ## Solution
 
-(Fill after implementation)
+1. Rewrote README.md with full launch content: tagline, before/after comparison, per-client install instructions (Claude Desktop, Claude Code, Cursor, Windsurf), conversational "What can it do?" table, tool reference, features list.
+2. Verified `uv build` produces correct wheel with all modules and entry point.
+3. Confirmed entry point `mcp-tap = mcp_tap:main` works.
+4. npm wrapper deferred — not needed for v0.1.0 (Python-only launch).
+5. PyPI publish and GitHub release to be done manually by maintainer.
 
 ## Files Changed
 
-(Fill after implementation)
+- `README.md` — Full rewrite for v0.1.0 launch
+- `docs/issues/2026-02-19_package-publish.md` — Status update
 
 ## Verification
 
-- [ ] `pip install mcp-tap` in clean venv works
-- [ ] `uvx mcp-tap` starts the server
-- [ ] `mcp-tap` entry point runs correctly
-- [ ] README has complete install instructions
-- [ ] PyPI page shows correct metadata
+- [x] `uv build` creates correct wheel (`mcp_tap-0.1.0-py3-none-any.whl`)
+- [x] Wheel contains all modules (32 files including scanner, tools, config, etc.)
+- [x] Entry point `mcp-tap = mcp_tap:main` present in `entry_points.txt`
+- [x] Import from wheel works (`version=0.1.0`)
+- [x] README has complete install instructions for all 4 clients
+- [x] 320 tests passing, ruff clean
+- [ ] `pip install mcp-tap` from PyPI (pending publish)
+- [ ] `uvx mcp-tap` from PyPI (pending publish)
+- [ ] PyPI page shows correct metadata (pending publish)
