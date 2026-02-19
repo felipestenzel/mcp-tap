@@ -20,6 +20,7 @@ from mcp_tap.models import (
     MCPClient,
     ServerHealth,
 )
+from mcp_tap.tools.conflicts import detect_tool_conflicts
 
 
 async def check_health(
@@ -114,6 +115,13 @@ async def check_health(
 
         if healing_details:
             result["healing_details"] = healing_details
+
+        conflicts = detect_tool_conflicts(server_healths)
+        if conflicts:
+            result["tool_conflicts"] = [
+                {"tool_name": c.tool_name, "servers": c.servers}
+                for c in conflicts
+            ]
 
         return result
 

@@ -182,6 +182,14 @@ class HealthReport:
     servers: list[ServerHealth] = field(default_factory=list)
 
 
+@dataclass(frozen=True, slots=True)
+class ToolConflict:
+    """A tool name that appears in multiple configured servers."""
+
+    tool_name: str
+    servers: list[str] = field(default_factory=list)
+
+
 # ─── Scanner Models ──────────────────────────────────────────
 
 

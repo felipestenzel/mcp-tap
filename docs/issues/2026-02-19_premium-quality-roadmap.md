@@ -1,8 +1,8 @@
 # Premium Quality Roadmap — mcp-tap para nível de produto cobrável
 
 - **Date**: 2026-02-19
-- **Status**: `open`
-- **Branch**: (múltiplas branches, uma por workstream)
+- **Status**: `open` (Fase 0 DONE, Fase 2 in progress)
+- **Branch**: `fix/2026-02-19-production-resilience` (Fase 0), `feature/2026-02-19-differentiation` (Fase 2)
 - **Priority**: `critical`
 
 ## Contexto
@@ -25,44 +25,32 @@ que impedem ser premium: (1) zero distribuição, (2) 4 bugs críticos de resili
 
 Sem corrigir esses 4 problemas, o produto não é confiável para uso real.
 
-### C1. Race Condition no Config Writer — sem file locking
-- **Arquivo**: `src/mcp_tap/config/writer.py` (linhas 62-77)
-- **Problema**: `_atomic_write` usa caminho fixo `.tmp`. Dois writes simultâneos
-  corrompem o config. `read_config` + `write_server_config` não são atômicos juntos.
-- **Fix**: `fcntl.flock()` no arquivo durante read-modify-write + nome `.tmp` único
-  por operação + `asyncio.Lock` por path dentro do mesmo processo.
-- **Esforço**: M
+### C1. Race Condition no Config Writer — sem file locking ✅ DONE
+- **Commit**: `d13c541` (branch `fix/2026-02-19-production-resilience`)
+- **Fix aplicado**: `threading.Lock` per-path + `fcntl.flock(LOCK_EX)` + `tempfile.mkstemp()` para temp files únicos
+- **Testes**: 5 novos (concurrent writes, lock file creation, unique temp files)
 
-### C2. GitHub API Rate Limit — 60 req/hr sem cache nem aviso
-- **Arquivo**: `src/mcp_tap/evaluation/github.py` (linhas 23-59)
-- **Problema**: Requests não autenticados (60/hr). `_apply_maturity` faz fetch
-  concorrente de TODOS os repos. 6 buscas/hr = rate limit. Falha silenciosa —
-  resultado simplesmente perde o score de maturidade sem nenhum aviso.
-- **Fix**: Cache em memória (LRU com TTL 15-30min), detecção de 403 com
-  `X-RateLimit-Remaining: 0`, suporte opcional a `GITHUB_TOKEN` (5000 req/hr),
-  `asyncio.Semaphore(5)` para limitar concorrência.
-- **Esforço**: M
+### C2. GitHub API Rate Limit — 60 req/hr sem cache nem aviso ✅ DONE
+- **Commit**: `d13c541`
+- **Fix aplicado**: Cache LRU TTL 15min, detecção `X-RateLimit-Remaining: 0`, `GITHUB_TOKEN` support, `asyncio.Semaphore(5)`
+- **Testes**: 14 novos (cache hit/miss/TTL, rate limit detect/reset, headers, integration)
 
-### C3. Processos Órfãos — kill() não mata filhos
-- **Arquivo**: `src/mcp_tap/installer/subprocess.py` (linhas 20-31)
-- **Problema**: `proc.kill()` no timeout mata apenas o processo pai. `npx` e
-  `docker pull` criam filhos que ficam como zumbis/órfãos.
-- **Fix**: `start_new_session=True` no subprocess + `os.killpg(os.getpgid(proc.pid), signal.SIGKILL)`.
-- **Esforço**: S
+### C3. Processos Órfãos — kill() não mata filhos ✅ DONE
+- **Commit**: `d13c541`
+- **Fix aplicado**: `start_new_session=True` + `os.killpg(SIGKILL)` com fallback `proc.kill()`
+- **Testes**: 13 novos (killpg, fallbacks ProcessLookupError/OSError, normal execution)
 
-### C4. check_health sem limite de concorrência
-- **Arquivo**: `src/mcp_tap/tools/health.py` (linhas 127-152)
-- **Problema**: `asyncio.gather` de TODOS os servidores simultâneos. 30 servers =
-  30 processos + 30 conexões MCP. Possível OOM/exaustão de file descriptors.
-- **Fix**: `asyncio.Semaphore(5)` para limitar concorrência.
-- **Esforço**: S
+### C4. check_health sem limite de concorrência ✅ DONE
+- **Commit**: `d13c541`
+- **Fix aplicado**: `asyncio.Semaphore(5)` via `_MAX_CONCURRENT_CHECKS` + `_limited_check` wrapper
+- **Testes**: 4 novos (constant value, concurrency limit tracking, failure handling)
 
 ### Problemas ALTOS adicionais:
 
-#### H1. Zero retries em chamadas HTTP
-- **Arquivos**: `registry/client.py`, `evaluation/github.py`, `inspector/fetcher.py`
-- **Fix**: `httpx.AsyncHTTPTransport(retries=3)` + wrapper com retry em 502/503.
-- **Esforço**: S
+#### H1. Zero retries em chamadas HTTP ✅ DONE
+- **Commit**: `d13c541`
+- **Fix aplicado**: `httpx.AsyncHTTPTransport(retries=3)` no `server.py` lifespan
+- **Testes**: 5 novos (transport retries, timeout config, follow_redirects, lifecycle)
 
 #### H2. Healing loop spawna até 7 processos por servidor
 - **Arquivo**: `src/mcp_tap/tools/configure.py` (linhas 147-205)
@@ -198,12 +186,15 @@ Sem corrigir esses 4 problemas, o produto não é confiável para uso real.
 
 ## Ordem de Execução Recomendada
 
-### Fase 0: Stabilize (1-2 dias)
-1. C3 — Processos órfãos (S, fix de 20 linhas)
-2. C4 — Semaphore no health check (S, fix de 10 linhas)
-3. C1 — File locking no config writer (M)
-4. C2 — Cache + rate limit do GitHub (M)
-5. H1 — HTTP retries (S)
+### Fase 0: Stabilize ✅ COMPLETA (2026-02-19)
+1. ✅ C3 — Processos órfãos
+2. ✅ C4 — Semaphore no health check
+3. ✅ C1 — File locking no config writer
+4. ✅ C2 — Cache + rate limit do GitHub
+5. ✅ H1 — HTTP retries
+- **Branch**: `fix/2026-02-19-production-resilience`
+- **Commit**: `d13c541`
+- **Testes**: 498 → 542 (+44 novos cobrindo todos os 5 fixes)
 
 ### Fase 1: Distribute (2 semanas, PARALELO com Fase 0)
 1. D1 — Demo GIF
