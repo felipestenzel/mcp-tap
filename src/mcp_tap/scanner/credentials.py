@@ -115,9 +115,8 @@ def map_credentials(
 
     for rec in recommendations:
         # Determine required env vars from static map or registry data
-        required_vars = (
-            reg_vars.get(rec.package_identifier)
-            or SERVER_ENV_VARS.get(rec.package_identifier, [])
+        required_vars = reg_vars.get(rec.package_identifier) or SERVER_ENV_VARS.get(
+            rec.package_identifier, []
         )
 
         for required in required_vars:

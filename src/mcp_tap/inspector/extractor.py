@@ -41,15 +41,54 @@ _REQUIRED_KEYWORDS = re.compile(
 )
 
 # Common non-env-var uppercase words to filter out
-_IGNORE_VARS = frozenset({
-    "README", "MCP", "API", "URL", "JSON", "HTTP", "HTTPS", "SSH",
-    "GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS", "PATCH",
-    "TRUE", "FALSE", "NULL", "ENV", "VAR", "CLI", "SDK",
-    "NPM", "NPX", "PIP", "UVX", "DOCKER", "GIT", "SQL",
-    "MIT", "BSD", "ISC", "AGPL", "GPL", "LGPL",
-    "TODO", "NOTE", "WARNING", "TIP", "IMPORTANT",
-    "SSE", "STDIO", "TCP", "UDP",
-})
+_IGNORE_VARS = frozenset(
+    {
+        "README",
+        "MCP",
+        "API",
+        "URL",
+        "JSON",
+        "HTTP",
+        "HTTPS",
+        "SSH",
+        "GET",
+        "POST",
+        "PUT",
+        "DELETE",
+        "HEAD",
+        "OPTIONS",
+        "PATCH",
+        "TRUE",
+        "FALSE",
+        "NULL",
+        "ENV",
+        "VAR",
+        "CLI",
+        "SDK",
+        "NPM",
+        "NPX",
+        "PIP",
+        "UVX",
+        "DOCKER",
+        "GIT",
+        "SQL",
+        "MIT",
+        "BSD",
+        "ISC",
+        "AGPL",
+        "GPL",
+        "LGPL",
+        "TODO",
+        "NOTE",
+        "WARNING",
+        "TIP",
+        "IMPORTANT",
+        "SSE",
+        "STDIO",
+        "TCP",
+        "UDP",
+    }
+)
 
 
 def _extract_code_blocks(readme: str) -> list[str]:
@@ -158,13 +197,15 @@ def extract_config_hints(readme: str) -> ConfigHints:
     json_configs = _extract_json_configs(code_blocks)
 
     # Compute confidence based on how many patterns matched
-    signals = sum([
-        len(install_commands) > 0,
-        len(env_vars) > 0,
-        len(transport_hints) > 0,
-        len(command_patterns) > 0,
-        len(json_configs) > 0,
-    ])
+    signals = sum(
+        [
+            len(install_commands) > 0,
+            len(env_vars) > 0,
+            len(transport_hints) > 0,
+            len(command_patterns) > 0,
+            len(json_configs) > 0,
+        ]
+    )
     confidence = min(signals / 4.0, 1.0)
 
     return ConfigHints(

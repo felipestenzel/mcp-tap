@@ -22,12 +22,9 @@ class TestGitHubRawUrl:
         assert url == "https://raw.githubusercontent.com/owner/repo/HEAD/README.md"
 
     def test_monorepo_subpath(self) -> None:
-        url = _github_raw_url(
-            "https://github.com/org/monorepo/tree/main/packages/server-foo"
-        )
+        url = _github_raw_url("https://github.com/org/monorepo/tree/main/packages/server-foo")
         assert url == (
-            "https://raw.githubusercontent.com/org/monorepo/main/"
-            "packages/server-foo/README.md"
+            "https://raw.githubusercontent.com/org/monorepo/main/packages/server-foo/README.md"
         )
 
     def test_non_github_returns_empty(self) -> None:

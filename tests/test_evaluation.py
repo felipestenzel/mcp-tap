@@ -189,9 +189,7 @@ class TestScoreMaturity:
 
     def test_official_bonus_is_significant(self) -> None:
         base = MaturitySignals(stars=50, last_commit_date=_recent_date(60))
-        official = MaturitySignals(
-            stars=50, last_commit_date=_recent_date(60), is_official=True
-        )
+        official = MaturitySignals(stars=50, last_commit_date=_recent_date(60), is_official=True)
         assert score_maturity(official).score > score_maturity(base).score + 0.2
 
     def test_score_clamped_to_0_1(self) -> None:
