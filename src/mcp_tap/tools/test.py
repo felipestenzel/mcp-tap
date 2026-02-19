@@ -20,19 +20,26 @@ async def test_connection(
     client: str = "",
     timeout_seconds: int = 15,
 ) -> dict[str, object]:
-    """Test that a configured MCP server starts and responds.
+    """Test that a single configured MCP server starts and responds correctly.
 
-    Spawns the server, connects via MCP protocol, calls list_tools(),
-    then shuts it down.
+    Spawns the server process, connects via MCP stdio protocol, calls
+    list_tools() to verify it responds, then shuts it down cleanly.
+
+    Use this to verify a specific server after configure_server, or to
+    debug a server that check_health reported as unhealthy.
 
     Args:
-        server_name: Name of the server as it appears in the config file.
-        client: Which MCP client's config to read from. Auto-detects if empty.
-        timeout_seconds: How long to wait for the server to respond (5-60).
+        server_name: Exact name of the server as it appears in the config.
+            Use list_installed to see available names.
+        client: Which MCP client's config to read from. One of
+            "claude_desktop", "claude_code", "cursor", "windsurf".
+            Auto-detects if empty.
+        timeout_seconds: Max seconds to wait for a response (clamped to 5-60).
+            Default 15. Increase for slow-starting servers.
 
     Returns:
-        Test result showing whether the server connected and what tools
-        it exposes, or the error message if it failed.
+        Test result with success status, discovered tool names, or error
+        message explaining what went wrong.
     """
     try:
         if client:

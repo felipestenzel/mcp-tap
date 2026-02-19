@@ -30,17 +30,22 @@ async def list_installed(
     ctx: Context,
     client: str = "",
 ) -> list[dict[str, object]]:
-    """List MCP servers currently configured in your AI client.
+    """List all MCP servers currently configured in your AI client.
 
-    Reads the config file and returns all configured servers with
-    their commands, arguments, and environment variable names
-    (secret values are masked).
+    Use this to see what servers are already set up before adding new ones
+    with configure_server, or to find the exact server name needed for
+    test_connection or remove_server.
+
+    Secret-looking environment variable values (API keys, tokens) are
+    automatically masked as "***" in the output.
 
     Args:
-        client: Which MCP client's config to read. Auto-detects if empty.
+        client: Which MCP client's config to read. One of "claude_desktop",
+            "claude_code", "cursor", "windsurf". Auto-detects if empty.
 
     Returns:
-        List of configured servers with name, command, args, and env var names.
+        List of configured servers, each with: name, command, args,
+        env (masked), and config_file path.
     """
     try:
         if client:

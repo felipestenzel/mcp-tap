@@ -36,32 +36,38 @@ async def configure_server(
 ) -> dict[str, object]:
     """Install an MCP server package, add it to your client config, and verify it works.
 
-    Full end-to-end flow:
-    1. Resolves the package installer for the registry type
-    2. Installs/verifies the package (fails fast if install fails)
-    3. Writes the server entry to your MCP client config file(s)
-    4. Validates the server by spawning it and calling list_tools()
+    This is the main action tool. It handles the complete setup flow:
+    1. Installs the package via npm/pip/docker (fails fast if install fails)
+    2. Writes the server entry to your MCP client config file(s)
+    3. Validates by spawning the server and calling list_tools()
+
+    Get the package_identifier and registry_type from search_servers results
+    or scan_project recommendations.
+
+    If validation fails, the config is still written — the user may need to
+    set environment variables or restart their MCP client.
 
     Args:
         server_name: Name for this server in the config (e.g. "postgres").
-        package_identifier: The package to run
-            (e.g. "@modelcontextprotocol/server-postgres").
+            This is how it appears in list_installed and other tools.
+        package_identifier: The package to install and run. Get this from
+            search_servers results (e.g. "@modelcontextprotocol/server-postgres"
+            for npm, "mcp-server-git" for pypi).
         clients: Target MCP client(s). Comma-separated names like
             "claude_desktop,cursor", "all" for every detected client,
             or empty to auto-detect the first available.
-        registry_type: Package source -- "npm", "pypi", or "oci".
-        version: Package version to install. Defaults to "latest".
-        env_vars: KEY=VALUE pairs separated by commas for environment
-            variables the server needs
-            (e.g. "POSTGRES_URL=postgresql://localhost/mydb,API_KEY=sk-...").
+        registry_type: Package source — "npm" (default), "pypi", or "oci".
+        version: Package version. Defaults to "latest".
+        env_vars: Environment variables the server needs, as comma-separated
+            KEY=VALUE pairs (e.g. "POSTGRES_URL=postgresql://...,API_KEY=sk-...").
+            Check search_servers results for env_vars_required.
         scope: "user" for global config (default), "project" for
             project-scoped config (e.g. .cursor/mcp.json in the project dir).
-        project_path: Path to the project directory. Required when scope="project".
+        project_path: Project directory path. Required when scope="project".
 
     Returns:
-        Configuration result showing install status, what was written,
-        validation results, and discovered tools. When configuring
-        multiple clients, includes per_client_results.
+        Result with: success, install_status, config_written, validation_passed,
+        tools_discovered. Multi-client calls also include per_client_results.
     """
     try:
         # Step 1: Resolve target config locations
