@@ -35,6 +35,7 @@ async def app_lifespan(server: FastMCP) -> AsyncIterator[AppContext]:
     async with httpx.AsyncClient(
         timeout=httpx.Timeout(30.0, connect=10.0),
         follow_redirects=True,
+        transport=httpx.AsyncHTTPTransport(retries=3),
     ) as http_client:
         registry = RegistryClient(http_client)
         yield AppContext(http_client=http_client, registry=registry)

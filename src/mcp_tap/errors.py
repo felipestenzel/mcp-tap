@@ -41,3 +41,11 @@ class InstallError(McpTapError):
 
 class ScanError(McpTapError):
     """Error scanning a project directory."""
+
+
+class LockfileReadError(McpTapError):
+    """Error reading or parsing the lockfile."""
+
+
+class LockfileWriteError(McpTapError):
+    """Error writing the lockfile."""

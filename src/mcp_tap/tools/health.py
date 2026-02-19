@@ -20,6 +20,7 @@ from mcp_tap.models import (
     MCPClient,
     ServerHealth,
 )
+from mcp_tap.tools.conflicts import detect_tool_conflicts
 
 
 async def check_health(
@@ -115,6 +116,12 @@ async def check_health(
         if healing_details:
             result["healing_details"] = healing_details
 
+        conflicts = detect_tool_conflicts(server_healths)
+        if conflicts:
+            result["tool_conflicts"] = [
+                {"tool_name": c.tool_name, "servers": c.servers} for c in conflicts
+            ]
+
         return result
 
     except McpTapError as exc:
@@ -122,6 +129,9 @@ async def check_health(
     except Exception as exc:
         await ctx.error(f"Unexpected error in check_health: {exc}")
         return {"success": False, "error": f"Internal error: {type(exc).__name__}"}
+
+
+_MAX_CONCURRENT_CHECKS = 5
 
 
 async def _check_all_servers(
@@ -132,8 +142,15 @@ async def _check_all_servers(
 
     Uses asyncio.gather with return_exceptions=True so that one server's
     failure does not prevent checking the rest.
+    Limits concurrency to _MAX_CONCURRENT_CHECKS to avoid resource exhaustion.
     """
-    tasks = [_check_single_server(server, timeout_seconds) for server in servers]
+    sem = asyncio.Semaphore(_MAX_CONCURRENT_CHECKS)
+
+    async def _limited_check(server: InstalledServer) -> ServerHealth:
+        async with sem:
+            return await _check_single_server(server, timeout_seconds)
+
+    tasks = [_limited_check(server) for server in servers]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
     healths: list[ServerHealth] = []

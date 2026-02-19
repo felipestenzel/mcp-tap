@@ -182,6 +182,14 @@ class HealthReport:
     servers: list[ServerHealth] = field(default_factory=list)
 
 
+@dataclass(frozen=True, slots=True)
+class ToolConflict:
+    """A tool name that appears in multiple configured servers."""
+
+    tool_name: str
+    servers: list[str] = field(default_factory=list)
+
+
 # ─── Scanner Models ──────────────────────────────────────────
 
 
@@ -343,3 +351,42 @@ class MaturityScore:
     tier: str  # "recommended", "acceptable", "caution", "avoid"
     reasons: list[str] = field(default_factory=list)
     warning: str | None = None
+
+
+# ─── Lockfile Models ──────────────────────────────────────────
+
+
+@dataclass(frozen=True, slots=True)
+class LockedConfig:
+    """Server config as stored in the lockfile (no env values)."""
+
+    command: str
+    args: list[str] = field(default_factory=list)
+    env_keys: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True, slots=True)
+class LockedServer:
+    """A single server entry in the lockfile."""
+
+    package_identifier: str
+    registry_type: str
+    version: str
+    integrity: str | None = None
+    repository_url: str = ""
+    config: LockedConfig = field(default_factory=lambda: LockedConfig(command=""))
+    tools: list[str] = field(default_factory=list)
+    tools_hash: str | None = None
+    installed_at: str = ""
+    verified_at: str | None = None
+    verified_healthy: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class Lockfile:
+    """The complete mcp-tap.lock file."""
+
+    lockfile_version: int = 1
+    generated_by: str = ""
+    generated_at: str = ""
+    servers: dict[str, LockedServer] = field(default_factory=dict)

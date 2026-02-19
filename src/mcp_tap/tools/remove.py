@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import asdict
 from pathlib import Path
 
@@ -11,6 +12,8 @@ from mcp_tap.config.detection import resolve_config_locations
 from mcp_tap.config.writer import remove_server_config
 from mcp_tap.errors import McpTapError
 from mcp_tap.models import RemoveResult
+
+logger = logging.getLogger(__name__)
 
 _NO_CLIENT_MSG = "No MCP client detected."
 
@@ -56,9 +59,20 @@ async def remove_server(
             )
 
         if len(locations) == 1:
-            return _remove_single(server_name, locations[0])
+            result = _remove_single(server_name, locations[0])
+        else:
+            result = _remove_multi(server_name, locations)
 
-        return _remove_multi(server_name, locations)
+        # Update lockfile if project_path is available
+        if project_path and result.get("success"):
+            try:
+                from mcp_tap.lockfile.writer import remove_server_from_lockfile
+
+                remove_server_from_lockfile(project_path, server_name)
+            except Exception:
+                logger.debug("Failed to update lockfile on remove", exc_info=True)
+
+        return result
 
     except McpTapError as exc:
         return asdict(

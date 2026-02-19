@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from pathlib import Path
 
 import pytest
@@ -124,3 +125,115 @@ class TestRemoveServerConfig:
         f.write_text(json.dumps({"mcpServers": {}}))
 
         assert remove_server_config(f, "nope") is None
+
+
+# === File Locking Tests (Fix C1) =============================================
+
+
+class TestWriteServerConfigLocking:
+    """Tests for in-process and cross-process file locking in config writer."""
+
+    def test_lock_file_created_during_write(self, tmp_path: Path):
+        """Should create a .lock file next to the config file during write."""
+        f = tmp_path / "config.json"
+        config = ServerConfig(command="npx", args=["-y", "test"])
+        write_server_config(f, "my-server", config)
+
+        # The lock file should have been created
+        lock_file = tmp_path / "config.lock"
+        assert lock_file.exists()
+
+    def test_unique_temp_files_no_fixed_tmp_suffix(self, tmp_path: Path):
+        """Should use tempfile.mkstemp() (unique names), not a fixed .tmp file."""
+        f = tmp_path / "config.json"
+
+        # Write two servers sequentially to verify no temp file collision
+        write_server_config(f, "server-1", ServerConfig(command="a", args=[]))
+        write_server_config(f, "server-2", ServerConfig(command="b", args=[]))
+
+        data = json.loads(f.read_text())
+        assert "server-1" in data["mcpServers"]
+        assert "server-2" in data["mcpServers"]
+
+        # No leftover .tmp files should remain
+        tmp_files = list(tmp_path.glob("*.tmp"))
+        assert len(tmp_files) == 0
+
+    def test_concurrent_writes_do_not_corrupt_file(self, tmp_path: Path):
+        """Should handle concurrent writes from same process without corruption."""
+        f = tmp_path / "config.json"
+        f.write_text(json.dumps({"mcpServers": {}}))
+
+        errors: list[Exception] = []
+        num_threads = 10
+
+        def _write_server(index: int) -> None:
+            try:
+                write_server_config(
+                    f,
+                    f"server-{index}",
+                    ServerConfig(command="npx", args=["-y", f"pkg-{index}"]),
+                )
+            except Exception as exc:
+                errors.append(exc)
+
+        threads = [threading.Thread(target=_write_server, args=(i,)) for i in range(num_threads)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert len(errors) == 0, f"Errors during concurrent writes: {errors}"
+
+        data = json.loads(f.read_text())
+        assert len(data["mcpServers"]) == num_threads
+        for i in range(num_threads):
+            assert f"server-{i}" in data["mcpServers"]
+
+    def test_concurrent_write_and_remove_no_corruption(self, tmp_path: Path):
+        """Should handle concurrent write + remove operations safely."""
+        f = tmp_path / "config.json"
+        # Pre-populate with servers to remove
+        initial = {"mcpServers": {f"existing-{i}": {"command": "x"} for i in range(5)}}
+        f.write_text(json.dumps(initial))
+
+        errors: list[Exception] = []
+
+        def _write(index: int) -> None:
+            try:
+                write_server_config(f, f"new-{index}", ServerConfig(command="npx", args=[]))
+            except Exception as exc:
+                errors.append(exc)
+
+        def _remove(index: int) -> None:
+            try:
+                remove_server_config(f, f"existing-{index}")
+            except Exception as exc:
+                errors.append(exc)
+
+        threads = []
+        for i in range(5):
+            threads.append(threading.Thread(target=_write, args=(i,)))
+            threads.append(threading.Thread(target=_remove, args=(i,)))
+
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert len(errors) == 0, f"Errors during concurrent ops: {errors}"
+
+        data = json.loads(f.read_text())
+        # All existing should be removed, all new should be added
+        for i in range(5):
+            assert f"existing-{i}" not in data["mcpServers"]
+            assert f"new-{i}" in data["mcpServers"]
+
+    def test_write_creates_parent_directories(self, tmp_path: Path):
+        """Should create parent directories if they don't exist."""
+        f = tmp_path / "subdir" / "deep" / "config.json"
+        write_server_config(f, "my-server", ServerConfig(command="npx", args=[]))
+
+        assert f.exists()
+        data = json.loads(f.read_text())
+        assert "my-server" in data["mcpServers"]
