@@ -390,3 +390,38 @@ class Lockfile:
     generated_by: str = ""
     generated_at: str = ""
     servers: dict[str, LockedServer] = field(default_factory=dict)
+
+
+class DriftType(StrEnum):
+    TOOLS_CHANGED = "tools_changed"
+    CONFIG_CHANGED = "config_changed"
+    VERSION_CHANGED = "version_changed"
+    MISSING = "missing"
+    EXTRA = "extra"
+
+
+class DriftSeverity(StrEnum):
+    INFO = "info"
+    WARNING = "warning"
+    ERROR = "error"
+
+
+@dataclass(frozen=True, slots=True)
+class DriftEntry:
+    """A single drift finding between lockfile and actual state."""
+
+    server: str
+    drift_type: DriftType
+    detail: str = ""
+    severity: DriftSeverity = DriftSeverity.WARNING
+
+
+@dataclass(frozen=True, slots=True)
+class VerifyResult:
+    """Result of lockfile verification."""
+
+    lockfile_path: str
+    total_locked: int
+    total_installed: int
+    drift: list[DriftEntry] = field(default_factory=list)
+    clean: bool = True

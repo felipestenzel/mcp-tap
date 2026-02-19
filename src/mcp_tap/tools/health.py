@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import asdict
 from pathlib import Path
 
@@ -21,6 +22,8 @@ from mcp_tap.models import (
     ServerHealth,
 )
 from mcp_tap.tools.conflicts import detect_tool_conflicts
+
+logger = logging.getLogger(__name__)
 
 
 async def check_health(
@@ -121,6 +124,12 @@ async def check_health(
             result["tool_conflicts"] = [
                 {"tool_name": c.tool_name, "servers": c.servers} for c in conflicts
             ]
+
+        # Lockfile integration: update verification and detect drift
+        _update_lockfile_verification(server_healths)
+        drift_entries = _detect_lockfile_drift(servers, server_healths)
+        if drift_entries:
+            result["drift"] = drift_entries
 
         return result
 
@@ -259,3 +268,62 @@ async def _heal_unhealthy(
         updated.append(health)
 
     return updated, details
+
+
+def _update_lockfile_verification(healths: list[ServerHealth]) -> None:
+    """Best-effort update of lockfile verification timestamps after health check.
+
+    For each healthy server, updates verified_at/tools in the lockfile.
+    Requires a lockfile to exist in CWD. Silently does nothing if no lockfile.
+    """
+    try:
+        from mcp_tap.lockfile.reader import read_lockfile
+        from mcp_tap.lockfile.writer import update_server_verification
+
+        cwd = Path.cwd()
+        lockfile = read_lockfile(cwd)
+        if not lockfile:
+            return
+
+        for health in healths:
+            if health.name in lockfile.servers:
+                update_server_verification(
+                    project_path=cwd,
+                    name=health.name,
+                    tools=health.tools,
+                    healthy=health.status == "healthy",
+                )
+    except Exception:
+        logger.debug("Failed to update lockfile verification", exc_info=True)
+
+
+def _detect_lockfile_drift(
+    installed: list[InstalledServer],
+    healths: list[ServerHealth],
+) -> list[dict[str, str]]:
+    """Best-effort lockfile drift detection after health check.
+
+    Returns a list of drift entry dicts, or empty list if no lockfile or no drift.
+    """
+    try:
+        from mcp_tap.lockfile.differ import diff_lockfile
+        from mcp_tap.lockfile.reader import read_lockfile
+
+        cwd = Path.cwd()
+        lockfile = read_lockfile(cwd)
+        if not lockfile:
+            return []
+
+        entries = diff_lockfile(lockfile, installed, healths)
+        return [
+            {
+                "server": e.server,
+                "drift_type": e.drift_type.value,
+                "detail": e.detail,
+                "severity": e.severity.value,
+            }
+            for e in entries
+        ]
+    except Exception:
+        logger.debug("Failed to detect lockfile drift", exc_info=True)
+        return []
