@@ -12,6 +12,7 @@ from mcp.types import ToolAnnotations
 
 from mcp_tap.registry.client import RegistryClient
 from mcp_tap.tools.configure import configure_server
+from mcp_tap.tools.health import check_health
 from mcp_tap.tools.list import list_installed
 from mcp_tap.tools.remove import remove_server
 from mcp_tap.tools.scan import scan_project
@@ -43,8 +44,9 @@ mcp = FastMCP(
     instructions=(
         "This server helps you discover, install, and configure MCP servers. "
         "Use scan_project to detect your tech stack and get recommendations, "
-        "search_servers to find servers, configure_server to install and add them "
-        "to your MCP client config, test_connection to verify they work, "
+        "search_servers to find servers (pass project_path for context-aware ranking), "
+        "configure_server to install and add them to your MCP client config, "
+        "test_connection to verify one server, check_health to verify all servers, "
         "list_installed to see what's configured, and remove_server to clean up."
     ),
     lifespan=app_lifespan,
@@ -55,6 +57,7 @@ mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))(scan_project)
 mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))(search_servers)
 mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))(list_installed)
 mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))(test_connection)
+mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))(check_health)
 
 # ─── Destructive tools ────────────────────────────────────────
 mcp.tool(annotations=ToolAnnotations(destructiveHint=True))(configure_server)

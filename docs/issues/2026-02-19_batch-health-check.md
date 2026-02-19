@@ -1,7 +1,7 @@
 # Batch Health Check Tool (check_health)
 
 - **Date**: 2026-02-19
-- **Status**: `open`
+- **Status**: `done`
 - **Branch**: `feature/2026-02-19-health-check`
 - **Priority**: `high`
 - **Issue**: #4
@@ -45,15 +45,26 @@ N/A — greenfield feature
 
 ## Solution
 
-(Fill after implementation)
+Implemented `check_health` tool in `tools/health.py` that:
+1. Detects the MCP client (or accepts explicit `client` parameter)
+2. Reads all configured servers from the client config
+3. Runs `test_server_connection()` on each server concurrently via `asyncio.gather`
+4. Returns a `HealthReport` dict with total/healthy/unhealthy counts and per-server details
+5. Classifies server status as "healthy", "unhealthy", or "timeout" based on connection test result
+6. Handles edge cases: no client detected, no servers configured, timeout clamping (5-60s)
+
+Added `ServerHealth` and `HealthReport` frozen dataclasses to `models.py`.
 
 ## Files Changed
 
-(Fill after implementation)
+- `src/mcp_tap/models.py` — Added `ServerHealth` and `HealthReport` dataclasses
+- `src/mcp_tap/tools/health.py` — New file: `check_health`, `_check_all_servers`, `_check_single_server`
+- `src/mcp_tap/server.py` — Imported and registered `check_health` with `readOnlyHint=True`
+- `tests/test_tools_health.py` — New file: 19 tests covering all paths
 
 ## Verification
 
-- [ ] Tests pass: `pytest tests/`
-- [ ] Linter passes: `ruff check src/ tests/`
-- [ ] Tool registered in `server.py` with `readOnlyHint=True`
-- [ ] Concurrent execution (not sequential) verified
+- [x] Tests pass: `pytest tests/` (234 passed)
+- [x] Linter passes: `ruff check src/ tests/`
+- [x] Tool registered in `server.py` with `readOnlyHint=True`
+- [x] Concurrent execution via `asyncio.gather` with `return_exceptions=True`

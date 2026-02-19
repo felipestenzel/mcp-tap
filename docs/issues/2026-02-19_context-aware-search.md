@@ -1,7 +1,7 @@
 # Context-Aware Search — Project-Informed Results
 
 - **Date**: 2026-02-19
-- **Status**: `open`
+- **Status**: `done`
 - **Branch**: `feature/2026-02-19-context-aware-search`
 - **Priority**: `medium`
 - **Issue**: #5
@@ -42,15 +42,30 @@ search_servers was built as a pure registry passthrough with no intelligence lay
 
 ## Solution
 
-(Fill after implementation)
+Added optional `project_path` parameter to `search_servers`. When provided:
+1. Scans the project via `scan_project()` to get a `ProjectProfile`
+2. Scores each search result against detected technologies using `score_result()`
+3. Adds `relevance` ("high"/"medium"/"low") and `match_reason` fields to each result
+4. Stable-sorts results by relevance (high first, original order preserved within groups)
+
+Created `scanner/scoring.py` with the scoring logic:
+- **Exact match**: technology name appears in result name or description -> "high"
+- **Category match**: result description contains keywords for a detected category -> "medium"
+- **No match**: -> "low"
+
+When `project_path` is not provided, behavior is unchanged (backward compatible).
 
 ## Files Changed
 
-(Fill after implementation)
+- `src/mcp_tap/tools/search.py` — Added `project_path` param, `_apply_project_scoring`, `_scan_project_safe`
+- `src/mcp_tap/scanner/scoring.py` — New file: `score_result`, `relevance_sort_key`
+- `src/mcp_tap/server.py` — Updated instructions string to mention context-aware search
+- `tests/test_scoring.py` — New file: 14 tests for scoring logic
+- `tests/test_tools_search.py` — New file: 8 tests for context-aware search tool
 
 ## Verification
 
-- [ ] Tests pass: `pytest tests/`
-- [ ] Linter passes: `ruff check src/ tests/`
-- [ ] Searching "database" with a Python+Postgres project ranks postgres-mcp first
-- [ ] Backward compatible: search without project_path works as before
+- [x] Tests pass: `pytest tests/` (234 passed)
+- [x] Linter passes: `ruff check src/ tests/`
+- [x] Searching "database" with a Python+Postgres project ranks postgres-mcp first
+- [x] Backward compatible: search without project_path works as before
