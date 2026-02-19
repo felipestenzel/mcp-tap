@@ -29,26 +29,19 @@
 
 ## Where We Stopped
 
-- **Current branch**: `fix/2026-02-19-registry-api-response-format`
-- **State**: Registry fix COMPLETO, não commitado ainda. Issue master criada.
-- **Tests**: 498 passing, linter clean
-
-### Pendências NESTA branch:
-- Commitar o registry fix
-- Merge para main (ou PR)
-
-### NÃO iniciado (roadmap da issue master):
-- Nenhum item do roadmap foi iniciado ainda — apenas documentado
+- **Current branch**: `main` (tudo mergeado)
+- **State**: Registry fix COMPLETO e mergeado via PR #23. Issue master criada.
+  Nenhum item do roadmap premium foi iniciado — apenas documentado.
+- **Tests**: 498 passing, linter + formatter clean, CI 4/4 green
 
 ## What To Do Next
 
-### Imediato (esta sessão ou próxima):
-1. **Commitar o registry fix** na branch atual e mergear para main
-2. **Bump version** para v0.2.5
-3. **Publicar no PyPI**
+### Imediato (próxima sessão):
+1. **Bump version** para v0.2.5
+2. **Publicar no PyPI**
 
 ### Fase 0 — Stabilize (próximas 1-2 sessões):
-Criar uma branch `fix/2026-02-19-production-resilience` e corrigir em paralelo:
+Criar branch `fix/production-resilience` e corrigir em paralelo:
 
 4. **C3 — Processos órfãos** (S, ~20 linhas)
    - Arquivo: `src/mcp_tap/installer/subprocess.py`
@@ -113,9 +106,10 @@ Criar uma branch `fix/2026-02-19-production-resilience` e corrigir em paralelo:
 - `.claude/agent-memory/perf-optimizer/MEMORY.md`
 - `.claude/agent-memory/product-strategy-advisor/MEMORY.md`
 
-## Agent IDs (for resuming if needed)
+## Quick Start for Next Session
 
-- product-strategy-advisor: `abcbd3e`
-- clean-architecture-designer: `a420d33`
-- innovation-lab: `a37fb39`
-- perf-optimizer: `a8d8324`
+```
+Leia docs/handoff/2026-02-19_1800_audit-and-registry-fix.md e
+docs/issues/2026-02-19_premium-quality-roadmap.md para contexto completo.
+Comece pela Fase 0 (Stabilize) — os 4 bugs críticos de resiliência.
+```
