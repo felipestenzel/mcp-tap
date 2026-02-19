@@ -202,11 +202,17 @@ Sem corrigir esses 4 problemas, o produto não é confiável para uso real.
 3. D3 — awesome-mcp-servers + Reddit
 4. D4 — Narrativa mcp-installer successor
 
-### Fase 2: Differentiate (2-3 semanas)
-1. I4 — Detecção de conflitos de tools (S, quick win)
-2. I1 — MCP Lockfile (M, define o padrão)
-3. I3 — Stacks conversacionais (M, network effects)
-4. I2 — Security gate (M, differentiator)
+### Fase 2: Differentiate (in progress)
+1. ✅ I4 — Detecção de conflitos de tools (commit `6bccb7c`)
+   - `ToolConflict` model + `detect_tool_conflicts()` + integração em check_health
+   - 15 novos testes
+2. 🔨 I1 — MCP Lockfile
+   - ✅ Design spec completa (`docs/specs/mcp-tap-lockfile-v1.md`)
+   - ✅ Phase 1 Core: models, reader, writer, hasher, hooks configure/remove (commit `887814e`)
+   - ⬜ Phase 2: Drift detection, verify tool, health check integration
+   - ⬜ Phase 3: Restore tool, version resolution, integrity hashes
+3. ⬜ I3 — Stacks conversacionais (M, network effects)
+4. ⬜ I2 — Security gate (M, differentiator)
 
 ### Fase 3: Enterprise-Grade (ongoing)
 1. A1+A2 — Ports formais + DI completo (L)
