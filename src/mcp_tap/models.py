@@ -156,6 +156,32 @@ class RemoveResult:
     message: str = ""
 
 
+# ─── Health Check Models ─────────────────────────────────────
+
+
+@dataclass(frozen=True, slots=True)
+class ServerHealth:
+    """Health status of a single configured MCP server."""
+
+    name: str
+    status: str  # "healthy", "unhealthy", "timeout"
+    tools_count: int = 0
+    tools: list[str] = field(default_factory=list)
+    error: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class HealthReport:
+    """Aggregated health report for all configured MCP servers."""
+
+    client: str
+    config_file: str
+    total: int
+    healthy: int
+    unhealthy: int
+    servers: list[ServerHealth] = field(default_factory=list)
+
+
 # ─── Scanner Models ──────────────────────────────────────────
 
 
