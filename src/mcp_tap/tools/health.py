@@ -124,6 +124,9 @@ async def check_health(
         return {"success": False, "error": f"Internal error: {type(exc).__name__}"}
 
 
+_MAX_CONCURRENT_CHECKS = 5
+
+
 async def _check_all_servers(
     servers: list[InstalledServer],
     timeout_seconds: int,
@@ -132,8 +135,15 @@ async def _check_all_servers(
 
     Uses asyncio.gather with return_exceptions=True so that one server's
     failure does not prevent checking the rest.
+    Limits concurrency to _MAX_CONCURRENT_CHECKS to avoid resource exhaustion.
     """
-    tasks = [_check_single_server(server, timeout_seconds) for server in servers]
+    sem = asyncio.Semaphore(_MAX_CONCURRENT_CHECKS)
+
+    async def _limited_check(server: InstalledServer) -> ServerHealth:
+        async with sem:
+            return await _check_single_server(server, timeout_seconds)
+
+    tasks = [_limited_check(server) for server in servers]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
     healths: list[ServerHealth] = []

@@ -2,13 +2,23 @@
 
 from __future__ import annotations
 
+import time
 from datetime import UTC, datetime, timedelta
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
 
-from mcp_tap.evaluation.github import _parse_github_url, fetch_repo_metadata
+from mcp_tap.evaluation.github import (
+    _cache_get,
+    _cache_set,
+    _check_rate_limit,
+    _github_headers,
+    _is_rate_limited,
+    _parse_github_url,
+    clear_cache,
+    fetch_repo_metadata,
+)
 from mcp_tap.evaluation.scorer import score_maturity
 from mcp_tap.models import MaturityScore, MaturitySignals
 
@@ -220,3 +230,233 @@ class TestModels:
         s = MaturityScore(score=0.5, tier="acceptable")
         with pytest.raises(AttributeError):
             s.score = 0.9  # type: ignore[misc]
+
+
+# ─── In-memory cache tests (Fix C2) ──────────────────────────
+
+
+class TestGitHubCacheGet:
+    """Tests for _cache_get cache hit/miss and TTL behavior."""
+
+    def test_cache_miss_returns_none(self) -> None:
+        """Should return None for a key not in cache."""
+        assert _cache_get("nonexistent/repo") is None
+
+    def test_cache_hit_returns_signals(self) -> None:
+        """Should return cached MaturitySignals for a known key."""
+        signals = MaturitySignals(stars=42)
+        _cache_set("test/repo", signals)
+
+        result = _cache_get("test/repo")
+        assert result is not None
+        assert result.stars == 42
+
+    def test_cache_expired_entry_returns_none(self) -> None:
+        """Should return None when the cached entry is past TTL."""
+        signals = MaturitySignals(stars=10)
+        _cache_set("expired/repo", signals)
+
+        # Patch time.monotonic to simulate TTL expiry
+        original_mono = time.monotonic()
+        with patch("mcp_tap.evaluation.github.time.monotonic",
+                    return_value=original_mono + 901):
+            result = _cache_get("expired/repo")
+
+        assert result is None
+
+
+class TestGitHubCacheClear:
+    """Tests for the clear_cache() function."""
+
+    def test_clear_cache_removes_entries(self) -> None:
+        """Should remove all cached entries."""
+        _cache_set("a/b", MaturitySignals(stars=1))
+        _cache_set("c/d", MaturitySignals(stars=2))
+
+        clear_cache()
+
+        assert _cache_get("a/b") is None
+        assert _cache_get("c/d") is None
+
+    def test_clear_cache_resets_rate_limit(self) -> None:
+        """Should reset rate limit state so _is_rate_limited returns False."""
+        # Simulate being rate limited
+        import mcp_tap.evaluation.github as gh_mod
+
+        gh_mod._rate_limit_reset = time.monotonic() + 9999
+
+        assert _is_rate_limited() is True
+
+        clear_cache()
+
+        assert _is_rate_limited() is False
+
+
+# ─── Rate limit tests (Fix C2) ──────────────────────────────
+
+
+class TestGitHubRateLimit:
+    """Tests for rate limit detection and recovery."""
+
+    def test_not_rate_limited_by_default(self) -> None:
+        """Should not be rate limited when _rate_limit_reset is 0."""
+        assert _is_rate_limited() is False
+
+    def test_rate_limit_detected_from_header(self) -> None:
+        """Should detect rate limit when X-RateLimit-Remaining is 0."""
+        resp = httpx.Response(
+            200,
+            headers={
+                "X-RateLimit-Remaining": "0",
+                "X-RateLimit-Reset": str(int(time.time()) + 60),
+            },
+        )
+        _check_rate_limit(resp)
+
+        assert _is_rate_limited() is True
+
+    def test_rate_limit_not_triggered_with_remaining(self) -> None:
+        """Should not trigger rate limit when remaining > 0."""
+        resp = httpx.Response(
+            200,
+            headers={"X-RateLimit-Remaining": "50"},
+        )
+        _check_rate_limit(resp)
+
+        assert _is_rate_limited() is False
+
+    def test_rate_limit_recovers_after_reset(self) -> None:
+        """Should no longer be rate limited after reset time passes."""
+        import mcp_tap.evaluation.github as gh_mod
+
+        # Set rate limit to expire immediately
+        gh_mod._rate_limit_reset = time.monotonic() - 1
+
+        assert _is_rate_limited() is False
+
+
+# ─── GitHub token header tests (Fix C2) ──────────────────────
+
+
+class TestGitHubHeaders:
+    """Tests for _github_headers with and without GITHUB_TOKEN."""
+
+    def test_headers_without_token(self) -> None:
+        """Should not include Authorization when GITHUB_TOKEN is not set."""
+        with patch.dict("os.environ", {}, clear=True):
+            headers = _github_headers()
+
+        assert "Accept" in headers
+        assert "Authorization" not in headers
+
+    def test_headers_with_token(self) -> None:
+        """Should include Bearer token when GITHUB_TOKEN is set."""
+        with patch.dict("os.environ", {"GITHUB_TOKEN": "ghp_test123"}):
+            headers = _github_headers()
+
+        assert headers["Authorization"] == "Bearer ghp_test123"
+        assert "Accept" in headers
+
+    def test_accept_header_always_present(self) -> None:
+        """Should always include the GitHub JSON accept header."""
+        with patch.dict("os.environ", {}, clear=True):
+            headers = _github_headers()
+
+        assert headers["Accept"] == "application/vnd.github+json"
+
+
+# ─── Cache integration with fetch_repo_metadata (Fix C2) ─────
+
+
+class TestFetchRepoMetadataCache:
+    """Tests for caching behavior in fetch_repo_metadata."""
+
+    async def test_cache_hit_skips_http_call(self) -> None:
+        """Should return cached result without making HTTP request on cache hit."""
+        signals = MaturitySignals(stars=100, forks=20)
+        _cache_set("owner/repo", signals)
+
+        client = AsyncMock(spec=httpx.AsyncClient)
+        result = await fetch_repo_metadata("https://github.com/owner/repo", client)
+
+        assert result is not None
+        assert result.stars == 100
+        # HTTP client should NOT have been called
+        client.get.assert_not_called()
+
+    async def test_cache_miss_makes_http_call(self) -> None:
+        """Should make HTTP request when cache has no entry for the key."""
+        data = {
+            "stargazers_count": 500,
+            "forks_count": 50,
+            "open_issues_count": 5,
+            "pushed_at": "2026-02-10T00:00:00Z",
+            "archived": False,
+            "license": {"spdx_id": "MIT"},
+        }
+        client = AsyncMock(spec=httpx.AsyncClient)
+        client.get = AsyncMock(return_value=_mock_github_response(data))
+
+        result = await fetch_repo_metadata("https://github.com/new/repo", client)
+
+        assert result is not None
+        assert result.stars == 500
+        client.get.assert_called_once()
+
+    async def test_second_call_uses_cache(self) -> None:
+        """Should cache the result and use it for the second call."""
+        data = {
+            "stargazers_count": 300,
+            "forks_count": 30,
+            "open_issues_count": 3,
+            "pushed_at": "2026-02-10T00:00:00Z",
+            "archived": False,
+            "license": None,
+        }
+        client = AsyncMock(spec=httpx.AsyncClient)
+        client.get = AsyncMock(return_value=_mock_github_response(data))
+
+        # First call -- HTTP request
+        result1 = await fetch_repo_metadata("https://github.com/cached/repo", client)
+        # Second call -- should use cache
+        result2 = await fetch_repo_metadata("https://github.com/cached/repo", client)
+
+        assert result1 is not None
+        assert result2 is not None
+        assert result1.stars == result2.stars
+        # Only one HTTP call should have been made
+        assert client.get.call_count == 1
+
+    async def test_rate_limited_returns_none_without_http(self) -> None:
+        """Should return None without HTTP call when rate limited."""
+        import mcp_tap.evaluation.github as gh_mod
+
+        gh_mod._rate_limit_reset = time.monotonic() + 9999
+
+        client = AsyncMock(spec=httpx.AsyncClient)
+        result = await fetch_repo_metadata(
+            "https://github.com/rate/limited", client
+        )
+
+        assert result is None
+        client.get.assert_not_called()
+
+    async def test_rate_limit_reset_allows_http_call(self) -> None:
+        """Should make HTTP call again after rate limit resets."""
+        data = {
+            "stargazers_count": 10,
+            "forks_count": 1,
+            "open_issues_count": 0,
+            "pushed_at": "2026-01-01T00:00:00Z",
+            "archived": False,
+            "license": None,
+        }
+        client = AsyncMock(spec=httpx.AsyncClient)
+        client.get = AsyncMock(return_value=_mock_github_response(data))
+
+        result = await fetch_repo_metadata(
+            "https://github.com/reset/allowed", client
+        )
+
+        assert result is not None
+        client.get.assert_called_once()

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from mcp_tap.errors import McpTapError
@@ -552,3 +553,89 @@ class TestHealthTimeoutClamping:
 
         call_kwargs = mock_test_conn.call_args
         assert call_kwargs[1]["timeout_seconds"] == 60
+
+
+# === Semaphore Concurrency Limiting (Fix C4) ==================================
+
+
+class TestHealthSemaphoreConcurrency:
+    """Tests for _MAX_CONCURRENT_CHECKS semaphore limiting in _check_all_servers."""
+
+    def test_max_concurrent_checks_constant_is_five(self):
+        """Should have _MAX_CONCURRENT_CHECKS set to 5."""
+        from mcp_tap.tools.health import _MAX_CONCURRENT_CHECKS
+
+        assert _MAX_CONCURRENT_CHECKS == 5
+
+    @patch("mcp_tap.tools.health.test_server_connection")
+    async def test_semaphore_limits_concurrency_to_five(
+        self,
+        mock_test_conn: AsyncMock,
+    ):
+        """Should run at most 5 checks concurrently when given 10 servers."""
+        max_concurrent = 0
+        current_concurrent = 0
+        lock = asyncio.Lock()
+
+        async def _track_concurrency(*args, **kwargs):
+            nonlocal max_concurrent, current_concurrent
+            async with lock:
+                current_concurrent += 1
+                if current_concurrent > max_concurrent:
+                    max_concurrent = current_concurrent
+
+            # Simulate some work so tasks overlap
+            await asyncio.sleep(0.01)
+
+            async with lock:
+                current_concurrent -= 1
+
+            server_name = args[0] if args else kwargs.get("server_name", "unknown")
+            return _ok_connection(server_name)
+
+        mock_test_conn.side_effect = _track_concurrency
+
+        servers = [_installed_server(f"server-{i}") for i in range(10)]
+        results = await _check_all_servers(servers, timeout_seconds=15)
+
+        assert len(results) == 10
+        assert max_concurrent <= 5
+        assert mock_test_conn.call_count == 10
+
+    @patch("mcp_tap.tools.health.test_server_connection")
+    async def test_all_servers_checked_with_semaphore(
+        self,
+        mock_test_conn: AsyncMock,
+    ):
+        """Should check all servers even with semaphore limiting."""
+        servers = [_installed_server(f"server-{i}") for i in range(8)]
+        mock_test_conn.side_effect = [
+            _ok_connection(f"server-{i}") for i in range(8)
+        ]
+
+        results = await _check_all_servers(servers, timeout_seconds=15)
+
+        assert len(results) == 8
+        assert all(r.status == "healthy" for r in results)
+
+    @patch("mcp_tap.tools.health.test_server_connection")
+    async def test_semaphore_with_failures_still_checks_all(
+        self,
+        mock_test_conn: AsyncMock,
+    ):
+        """Should check all servers when some fail under semaphore."""
+        servers = [_installed_server(f"server-{i}") for i in range(7)]
+        mock_test_conn.side_effect = [
+            _ok_connection("server-0"),
+            _failed_connection("server-1"),
+            _ok_connection("server-2"),
+            RuntimeError("boom"),
+            _ok_connection("server-4"),
+            _failed_connection("server-5"),
+            _ok_connection("server-6"),
+        ]
+
+        results = await _check_all_servers(servers, timeout_seconds=15)
+
+        assert len(results) == 7
+        assert mock_test_conn.call_count == 7
