@@ -85,7 +85,10 @@ async def test_connection(
         # Attempt healing
         await ctx.info(f"Test failed for {server_name}, attempting self-healing...")
         healing_result = await heal_and_retry(
-            server_name, target.config, result, timeout_seconds=timeout,
+            server_name,
+            target.config,
+            result,
+            timeout_seconds=timeout,
         )
 
         response = asdict(result)
@@ -97,7 +100,9 @@ async def test_connection(
 
         if healing_result.fixed and healing_result.fixed_config is not None:
             final_test = await test_server_connection(
-                server_name, healing_result.fixed_config, timeout_seconds=timeout,
+                server_name,
+                healing_result.fixed_config,
+                timeout_seconds=timeout,
             )
             response = asdict(final_test)
             response["healing"] = {

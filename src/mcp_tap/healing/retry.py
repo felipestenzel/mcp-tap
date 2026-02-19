@@ -56,14 +56,18 @@ async def heal_and_retry(
     for attempt_num in range(1, max_attempts + 1):
         logger.info(
             "Healing attempt %d/%d for '%s'",
-            attempt_num, max_attempts, server_name,
+            attempt_num,
+            max_attempts,
+            server_name,
         )
 
         # 1. Classify the error
         diagnosis = classify_error(current_error)
         logger.info(
             "Diagnosed '%s' as %s (confidence=%.2f)",
-            server_name, diagnosis.category, diagnosis.confidence,
+            server_name,
+            diagnosis.category,
+            diagnosis.confidence,
         )
 
         # 2. Generate a candidate fix
@@ -94,7 +98,9 @@ async def heal_and_retry(
 
         # 5. Re-validate
         result = await test_server_connection(
-            server_name, current_config, timeout_seconds=timeout,
+            server_name,
+            current_config,
+            timeout_seconds=timeout,
         )
 
         attempts.append(
@@ -117,7 +123,9 @@ async def heal_and_retry(
         current_error = result
         logger.warning(
             "Healing attempt %d failed for '%s': %s",
-            attempt_num, server_name, result.error,
+            attempt_num,
+            server_name,
+            result.error,
         )
 
     # Exhausted all attempts

@@ -93,7 +93,10 @@ async def check_health(
         healing_details: dict[str, dict[str, object]] = {}
         if auto_heal:
             server_healths, healing_details = await _heal_unhealthy(
-                servers, server_healths, timeout, ctx,
+                servers,
+                server_healths,
+                timeout,
+                ctx,
             )
 
         healthy_count = sum(1 for s in server_healths if s.status == "healthy")
@@ -205,7 +208,9 @@ async def _heal_unhealthy(
         )
 
         healing_result = await heal_and_retry(
-            server.name, server.config, error_result,
+            server.name,
+            server.config,
+            error_result,
             timeout_seconds=timeout_seconds,
         )
 
@@ -218,7 +223,8 @@ async def _heal_unhealthy(
         if healing_result.fixed and healing_result.fixed_config is not None:
             # Re-check with healed config
             recheck = await test_server_connection(
-                server.name, healing_result.fixed_config,
+                server.name,
+                healing_result.fixed_config,
                 timeout_seconds=timeout_seconds,
             )
             if recheck.success:
@@ -230,9 +236,7 @@ async def _heal_unhealthy(
                         tools=recheck.tools_discovered,
                     )
                 )
-                details[server.name]["fixed_config"] = (
-                    healing_result.fixed_config.to_dict()
-                )
+                details[server.name]["fixed_config"] = healing_result.fixed_config.to_dict()
                 continue
 
         updated.append(health)

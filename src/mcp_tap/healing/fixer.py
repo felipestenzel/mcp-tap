@@ -59,8 +59,7 @@ def generate_fix(
                 "not expired."
             ),
             env_var_hint=(
-                "Review the env vars configured for this server. "
-                "Ensure each key/token is valid."
+                "Review the env vars configured for this server. Ensure each key/token is valid."
             ),
             requires_user_action=True,
         )
@@ -89,8 +88,7 @@ def generate_fix(
     # UNKNOWN
     return CandidateFix(
         description=(
-            f"Unrecognized error: {diagnosis.original_error}. "
-            "Manual investigation is needed."
+            f"Unrecognized error: {diagnosis.original_error}. Manual investigation is needed."
         ),
         requires_user_action=True,
     )
@@ -108,9 +106,7 @@ def _fix_command_not_found(config: ServerConfig) -> CandidateFix:
     if full_path and full_path != command:
         new_config = replace(config, command=full_path)
         return CandidateFix(
-            description=(
-                f"Resolved '{command}' to full path '{full_path}'."
-            ),
+            description=(f"Resolved '{command}' to full path '{full_path}'."),
             new_config=new_config,
         )
 

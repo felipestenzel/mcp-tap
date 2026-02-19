@@ -77,8 +77,10 @@ def _healing_attempt(
 ) -> HealingAttempt:
     return HealingAttempt(
         diagnosis=diagnosis or _diagnosis(),
-        fix_applied=fix or CandidateFix(
-            description="test", requires_user_action=False,
+        fix_applied=fix
+        or CandidateFix(
+            description="test",
+            requires_user_action=False,
         ),
         success=success,
     )
@@ -217,7 +219,9 @@ class TestClassifier:
     # ── Structural invariants ─────────────────────────────────
 
     @pytest.mark.parametrize(
-        "error_msg", _REPR_ERRORS, ids=_REPR_IDS,
+        "error_msg",
+        _REPR_ERRORS,
+        ids=_REPR_IDS,
     )
     def test_explanation_is_non_empty(self, error_msg: str):
         """Should always provide a non-empty explanation."""
@@ -516,7 +520,8 @@ class TestFixer:
     def test_candidate_fix_is_frozen(self):
         """CandidateFix should be a frozen dataclass."""
         fix = CandidateFix(
-            description="Test fix", requires_user_action=False,
+            description="Test fix",
+            requires_user_action=False,
         )
         with pytest.raises(AttributeError):
             fix.description = "changed"  # type: ignore[misc]
@@ -536,7 +541,10 @@ class TestRetryLoop:
     @patch("mcp_tap.healing.retry.generate_fix")
     @patch("mcp_tap.healing.retry.classify_error")
     async def test_fix_succeeds_first_attempt(
-        self, mock_classify, mock_generate_fix, mock_test_conn,
+        self,
+        mock_classify,
+        mock_generate_fix,
+        mock_test_conn,
     ):
         """Should return fixed=True with 1 attempt when fix works."""
         initial_error = _failed_connection("Command not found: npx")
@@ -549,7 +557,8 @@ class TestRetryLoop:
             description="Resolved npx to full path",
             requires_user_action=False,
             new_config=ServerConfig(
-                command="/usr/local/bin/npx", args=config.args,
+                command="/usr/local/bin/npx",
+                args=config.args,
             ),
         )
         mock_test_conn.return_value = _ok_connection()
@@ -557,7 +566,10 @@ class TestRetryLoop:
         from mcp_tap.healing.retry import heal_and_retry
 
         result = await heal_and_retry(
-            "test-server", config, initial_error, max_attempts=3,
+            "test-server",
+            config,
+            initial_error,
+            max_attempts=3,
         )
 
         assert isinstance(result, HealingResult)
@@ -571,7 +583,10 @@ class TestRetryLoop:
     @patch("mcp_tap.healing.retry.generate_fix")
     @patch("mcp_tap.healing.retry.classify_error")
     async def test_fix_succeeds_second_attempt(
-        self, mock_classify, mock_generate_fix, mock_test_conn,
+        self,
+        mock_classify,
+        mock_generate_fix,
+        mock_test_conn,
     ):
         """Should return fixed=True with 2 attempts."""
         initial_error = _failed_connection(
@@ -595,7 +610,10 @@ class TestRetryLoop:
         from mcp_tap.healing.retry import heal_and_retry
 
         result = await heal_and_retry(
-            "test-server", config, initial_error, max_attempts=3,
+            "test-server",
+            config,
+            initial_error,
+            max_attempts=3,
         )
 
         assert result.fixed is True
@@ -607,7 +625,10 @@ class TestRetryLoop:
     @patch("mcp_tap.healing.retry.generate_fix")
     @patch("mcp_tap.healing.retry.classify_error")
     async def test_all_attempts_fail(
-        self, mock_classify, mock_generate_fix, mock_test_conn,
+        self,
+        mock_classify,
+        mock_generate_fix,
+        mock_test_conn,
     ):
         """Should return fixed=False when all max_attempts exhausted."""
         initial_error = _failed_connection(
@@ -630,7 +651,10 @@ class TestRetryLoop:
         from mcp_tap.healing.retry import heal_and_retry
 
         result = await heal_and_retry(
-            "test-server", config, initial_error, max_attempts=3,
+            "test-server",
+            config,
+            initial_error,
+            max_attempts=3,
         )
 
         assert result.fixed is False
@@ -644,7 +668,10 @@ class TestRetryLoop:
     @patch("mcp_tap.healing.retry.generate_fix")
     @patch("mcp_tap.healing.retry.classify_error")
     async def test_user_action_stops_immediately(
-        self, mock_classify, mock_generate_fix, mock_test_conn,
+        self,
+        mock_classify,
+        mock_generate_fix,
+        mock_test_conn,
     ):
         """Should stop when fix requires user intervention."""
         initial_error = _failed_connection("401 Unauthorized")
@@ -662,7 +689,10 @@ class TestRetryLoop:
         from mcp_tap.healing.retry import heal_and_retry
 
         result = await heal_and_retry(
-            "test-server", config, initial_error, max_attempts=3,
+            "test-server",
+            config,
+            initial_error,
+            max_attempts=3,
         )
 
         assert result.fixed is False
@@ -673,7 +703,10 @@ class TestRetryLoop:
     @patch("mcp_tap.healing.retry.generate_fix")
     @patch("mcp_tap.healing.retry.classify_error")
     async def test_user_action_missing_env_var(
-        self, mock_classify, mock_generate_fix, mock_test_conn,
+        self,
+        mock_classify,
+        mock_generate_fix,
+        mock_test_conn,
     ):
         """Should stop for MISSING_ENV_VAR since user must set it."""
         initial_error = _failed_connection("SLACK_BOT_TOKEN is not set")
@@ -691,7 +724,10 @@ class TestRetryLoop:
         from mcp_tap.healing.retry import heal_and_retry
 
         result = await heal_and_retry(
-            "test-server", config, initial_error, max_attempts=3,
+            "test-server",
+            config,
+            initial_error,
+            max_attempts=3,
         )
 
         assert result.fixed is False
@@ -704,7 +740,10 @@ class TestRetryLoop:
     @patch("mcp_tap.healing.retry.generate_fix")
     @patch("mcp_tap.healing.retry.classify_error")
     async def test_max_attempts_respected(
-        self, mock_classify, mock_generate_fix, mock_test_conn,
+        self,
+        mock_classify,
+        mock_generate_fix,
+        mock_test_conn,
     ):
         """Should never exceed max_attempts calls."""
         initial_error = _failed_connection(
@@ -727,7 +766,10 @@ class TestRetryLoop:
         from mcp_tap.healing.retry import heal_and_retry
 
         result = await heal_and_retry(
-            "test-server", config, initial_error, max_attempts=2,
+            "test-server",
+            config,
+            initial_error,
+            max_attempts=2,
         )
 
         assert mock_test_conn.await_count == 2
@@ -738,7 +780,10 @@ class TestRetryLoop:
     @patch("mcp_tap.healing.retry.generate_fix")
     @patch("mcp_tap.healing.retry.classify_error")
     async def test_single_attempt_max(
-        self, mock_classify, mock_generate_fix, mock_test_conn,
+        self,
+        mock_classify,
+        mock_generate_fix,
+        mock_test_conn,
     ):
         """Should work correctly with max_attempts=1."""
         initial_error = _failed_connection(
@@ -759,7 +804,10 @@ class TestRetryLoop:
         from mcp_tap.healing.retry import heal_and_retry
 
         result = await heal_and_retry(
-            "test-server", config, initial_error, max_attempts=1,
+            "test-server",
+            config,
+            initial_error,
+            max_attempts=1,
         )
 
         assert result.fixed is True
@@ -772,7 +820,10 @@ class TestRetryLoop:
     @patch("mcp_tap.healing.retry.generate_fix")
     @patch("mcp_tap.healing.retry.classify_error")
     async def test_result_contains_attempts_list(
-        self, mock_classify, mock_generate_fix, mock_test_conn,
+        self,
+        mock_classify,
+        mock_generate_fix,
+        mock_test_conn,
     ):
         """Should populate attempts with HealingAttempt objects."""
         initial_error = _failed_connection("Command not found: npx")
@@ -791,7 +842,10 @@ class TestRetryLoop:
         from mcp_tap.healing.retry import heal_and_retry
 
         result = await heal_and_retry(
-            "test-server", config, initial_error, max_attempts=3,
+            "test-server",
+            config,
+            initial_error,
+            max_attempts=3,
         )
 
         assert isinstance(result.attempts, list)
@@ -806,7 +860,10 @@ class TestRetryLoop:
     @patch("mcp_tap.healing.retry.generate_fix")
     @patch("mcp_tap.healing.retry.classify_error")
     async def test_result_fixed_config_on_success(
-        self, mock_classify, mock_generate_fix, mock_test_conn,
+        self,
+        mock_classify,
+        mock_generate_fix,
+        mock_test_conn,
     ):
         """Should include the working config in fixed_config."""
         initial_error = _failed_connection("Command not found: npx")
@@ -826,7 +883,10 @@ class TestRetryLoop:
         from mcp_tap.healing.retry import heal_and_retry
 
         result = await heal_and_retry(
-            "test-server", config, initial_error, max_attempts=3,
+            "test-server",
+            config,
+            initial_error,
+            max_attempts=3,
         )
 
         assert result.fixed is True
@@ -837,7 +897,10 @@ class TestRetryLoop:
     @patch("mcp_tap.healing.retry.generate_fix")
     @patch("mcp_tap.healing.retry.classify_error")
     async def test_result_fixed_config_on_user_action(
-        self, mock_classify, mock_generate_fix, mock_test_conn,
+        self,
+        mock_classify,
+        mock_generate_fix,
+        mock_test_conn,
     ):
         """Should preserve original config in fixed_config on failure."""
         initial_error = _failed_connection("Connection refused")
@@ -854,7 +917,10 @@ class TestRetryLoop:
         from mcp_tap.healing.retry import heal_and_retry
 
         result = await heal_and_retry(
-            "test-server", config, initial_error, max_attempts=3,
+            "test-server",
+            config,
+            initial_error,
+            max_attempts=3,
         )
 
         assert result.fixed is False
@@ -865,7 +931,10 @@ class TestRetryLoop:
     @patch("mcp_tap.healing.retry.generate_fix")
     @patch("mcp_tap.healing.retry.classify_error")
     async def test_timeout_escalation(
-        self, mock_classify, mock_generate_fix, mock_test_conn,
+        self,
+        mock_classify,
+        mock_generate_fix,
+        mock_test_conn,
     ):
         """Should escalate timeout values on successive timeout failures."""
         initial_error = _failed_connection(
@@ -888,7 +957,10 @@ class TestRetryLoop:
         from mcp_tap.healing.retry import heal_and_retry
 
         await heal_and_retry(
-            "test-server", config, initial_error, max_attempts=3,
+            "test-server",
+            config,
+            initial_error,
+            max_attempts=3,
         )
 
         call_kwargs = [c.kwargs for c in mock_test_conn.call_args_list]
@@ -922,8 +994,12 @@ class TestHealingModels:
         """ErrorCategory should be a StrEnum with all expected members."""
         assert isinstance(ErrorCategory.COMMAND_NOT_FOUND, str)
         expected = {
-            "COMMAND_NOT_FOUND", "CONNECTION_REFUSED", "TIMEOUT",
-            "AUTH_FAILED", "MISSING_ENV_VAR", "PERMISSION_DENIED",
+            "COMMAND_NOT_FOUND",
+            "CONNECTION_REFUSED",
+            "TIMEOUT",
+            "AUTH_FAILED",
+            "MISSING_ENV_VAR",
+            "PERMISSION_DENIED",
             "UNKNOWN",
         }
         actual = {m.name for m in ErrorCategory}
@@ -999,7 +1075,9 @@ class TestHealingModels:
         diag = _diagnosis()
         fix = CandidateFix(description="test fix", requires_user_action=False)
         attempt = HealingAttempt(
-            diagnosis=diag, fix_applied=fix, success=True,
+            diagnosis=diag,
+            fix_applied=fix,
+            success=True,
         )
         assert attempt.diagnosis.category == ErrorCategory.COMMAND_NOT_FOUND
         assert attempt.fix_applied.description == "test fix"

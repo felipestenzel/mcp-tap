@@ -129,8 +129,7 @@ def classify_error(error: ConnectionTestResult) -> DiagnosisResult:
         category=ErrorCategory.UNKNOWN,
         original_error=text,
         explanation=(
-            f"The server failed with an unrecognized error: {text}. "
-            "Manual investigation is needed."
+            f"The server failed with an unrecognized error: {text}. Manual investigation is needed."
         ),
         suggested_fix="Review the error message and server logs for clues.",
         confidence=0.3,

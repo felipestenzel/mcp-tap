@@ -162,17 +162,19 @@ async def _configure_single(
     healing_info: dict[str, object] = {}
     effective_config = server_config
     if not validation_passed:
-        healed, effective_config, healing_info = await _try_heal(
-            server_name, server_config, ctx
-        )
+        healed, effective_config, healing_info = await _try_heal(server_name, server_config, ctx)
         if healed:
             validation_passed = True
             write_server_config(
-                Path(location.path), server_name, effective_config,
+                Path(location.path),
+                server_name,
+                effective_config,
                 overwrite_existing=True,
             )
             test_result = await test_server_connection(
-                server_name, effective_config, timeout_seconds=15,
+                server_name,
+                effective_config,
+                timeout_seconds=15,
             )
             tools_discovered = list(test_result.tools_discovered)
             tool_summary = (
@@ -219,13 +221,13 @@ async def _configure_multi(
     healing_info: dict[str, object] = {}
     effective_config = server_config
     if not validation_passed:
-        healed, effective_config, healing_info = await _try_heal(
-            server_name, server_config, ctx
-        )
+        healed, effective_config, healing_info = await _try_heal(server_name, server_config, ctx)
         if healed:
             validation_passed = True
             test_result = await test_server_connection(
-                server_name, effective_config, timeout_seconds=15,
+                server_name,
+                effective_config,
+                timeout_seconds=15,
             )
             tools_discovered = list(test_result.tools_discovered)
             tool_summary = (
@@ -240,7 +242,9 @@ async def _configure_multi(
     for loc in locations:
         try:
             write_server_config(
-                Path(loc.path), server_name, effective_config,
+                Path(loc.path),
+                server_name,
+                effective_config,
                 overwrite_existing=True,
             )
             per_client.append(
@@ -331,14 +335,18 @@ async def _try_heal(
 
     # Get a fresh error for healing
     error_result = await test_server_connection(
-        server_name, server_config, timeout_seconds=15,
+        server_name,
+        server_config,
+        timeout_seconds=15,
     )
     if error_result.success:
         # Transient failure — it works now
         return True, server_config, {"healed": True, "note": "Transient failure resolved."}
 
     healing_result = await heal_and_retry(
-        server_name, server_config, error_result,
+        server_name,
+        server_config,
+        error_result,
     )
 
     info: dict[str, object] = {
