@@ -1,8 +1,8 @@
 # Documentation Comprehension — Extract Config from Server READMEs
 
 - **Date**: 2026-02-19
-- **Status**: `open`
-- **Branch**: `feature/YYYY-MM-DD-doc-comprehension`
+- **Status**: `done`
+- **Branch**: `feature/2026-02-19-v02-roadmap`
 - **Priority**: `medium`
 - **Issue**: #12
 
@@ -175,12 +175,18 @@ mcp-tap has no way to fetch or process server documentation. It's a blind spot b
 
 ## Solution
 
-(Fill after implementation)
+Implemented `inspector/` module with `fetcher.py` (GitHub/GitLab raw URL conversion + async fetch) and `extractor.py` (regex-based extraction of install commands, env vars, transport hints, command patterns, and JSON config blocks). New `inspect_server` tool registered as read-only in `server.py`. Returns structured `ConfigHints` plus first 5000 chars of raw README for LLM reasoning.
 
 ## Files Changed
 
-(Fill after implementation)
+- `src/mcp_tap/models.py` — Added `EnvVarHint`, `ConfigHints` dataclasses
+- `src/mcp_tap/inspector/__init__.py` — NEW
+- `src/mcp_tap/inspector/fetcher.py` — NEW: README fetch from GitHub/GitLab
+- `src/mcp_tap/inspector/extractor.py` — NEW: regex-based config extraction
+- `src/mcp_tap/tools/inspect.py` — NEW: `inspect_server` tool
+- `src/mcp_tap/server.py` — Registered `inspect_server` as read-only tool
+- `tests/test_inspector.py` — NEW: 22 tests
 
 ## Lessons Learned
 
-(Fill after implementation)
+Filtering env vars by requiring underscores and ignoring common uppercase words (MCP, JSON, README etc.) eliminates most false positives from regex extraction.

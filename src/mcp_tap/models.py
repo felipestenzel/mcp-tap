@@ -277,3 +277,69 @@ class HealingResult:
     attempts: list[HealingAttempt] = field(default_factory=list)
     fixed_config: ServerConfig | None = None
     user_action_needed: str = ""
+
+
+# ─── Credential Mapping Models ─────────────────────────────
+
+
+@dataclass(frozen=True, slots=True)
+class CredentialMapping:
+    """Maps a server's required env var to an available project credential."""
+
+    server_name: str
+    required_env_var: str
+    available_env_var: str | None = None
+    source: str = "not found"
+    status: str = "missing"  # "exact_match", "compatible_match", "missing"
+    help_url: str = ""
+
+
+# ─── Inspector Models ───────────────────────────────────────
+
+
+@dataclass(frozen=True, slots=True)
+class EnvVarHint:
+    """An environment variable mentioned in server documentation."""
+
+    name: str
+    context: str
+    is_required: bool = True
+
+
+@dataclass(frozen=True, slots=True)
+class ConfigHints:
+    """Structured hints extracted from a server's documentation."""
+
+    install_commands: list[str] = field(default_factory=list)
+    transport_hints: list[str] = field(default_factory=list)
+    env_vars_mentioned: list[EnvVarHint] = field(default_factory=list)
+    command_patterns: list[str] = field(default_factory=list)
+    json_config_blocks: list[str] = field(default_factory=list)
+    confidence: float = 0.0
+
+
+# ─── Evaluation Models ──────────────────────────────────────
+
+
+@dataclass(frozen=True, slots=True)
+class MaturitySignals:
+    """Raw signals collected about a server's maturity/health."""
+
+    stars: int | None = None
+    forks: int | None = None
+    open_issues: int | None = None
+    last_commit_date: str | None = None
+    last_release_date: str | None = None
+    is_official: bool = False
+    is_archived: bool = False
+    license: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class MaturityScore:
+    """Computed maturity assessment for a server."""
+
+    score: float
+    tier: str  # "recommended", "acceptable", "caution", "avoid"
+    reasons: list[str] = field(default_factory=list)
+    warning: str | None = None
