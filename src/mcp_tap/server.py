@@ -19,6 +19,7 @@ from mcp_tap.tools.remove import remove_server
 from mcp_tap.tools.scan import scan_project
 from mcp_tap.tools.search import search_servers
 from mcp_tap.tools.test import test_connection
+from mcp_tap.tools.verify import verify
 
 
 @dataclass
@@ -112,6 +113,7 @@ mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))(list_installed)
 mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))(test_connection)
 mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))(check_health)
 mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))(inspect_server)
+mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))(verify)
 
 # ─── Destructive tools ────────────────────────────────────────
 mcp.tool(annotations=ToolAnnotations(destructiveHint=True))(configure_server)
