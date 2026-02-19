@@ -222,3 +222,58 @@ class ProjectProfile:
     technologies: list[DetectedTechnology] = field(default_factory=list)
     env_var_names: list[str] = field(default_factory=list)
     recommendations: list[ServerRecommendation] = field(default_factory=list)
+
+
+# ─── Healing Models ──────────────────────────────────────────
+
+
+class ErrorCategory(StrEnum):
+    COMMAND_NOT_FOUND = "command_not_found"
+    CONNECTION_REFUSED = "connection_refused"
+    TIMEOUT = "timeout"
+    AUTH_FAILED = "auth_failed"
+    MISSING_ENV_VAR = "missing_env_var"
+    TRANSPORT_MISMATCH = "transport_mismatch"
+    PERMISSION_DENIED = "permission_denied"
+    UNKNOWN = "unknown"
+
+
+@dataclass(frozen=True, slots=True)
+class DiagnosisResult:
+    """Structured diagnosis of a server connection error."""
+
+    category: ErrorCategory
+    original_error: str
+    explanation: str
+    suggested_fix: str
+    confidence: float = 1.0
+
+
+@dataclass(frozen=True, slots=True)
+class CandidateFix:
+    """A proposed fix for a diagnosed server error."""
+
+    description: str
+    new_config: ServerConfig | None = None
+    install_command: str | None = None
+    env_var_hint: str | None = None
+    requires_user_action: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class HealingAttempt:
+    """A single diagnose-fix-retry iteration."""
+
+    diagnosis: DiagnosisResult
+    fix_applied: CandidateFix
+    success: bool
+
+
+@dataclass(frozen=True, slots=True)
+class HealingResult:
+    """Outcome of the full healing retry loop."""
+
+    fixed: bool
+    attempts: list[HealingAttempt] = field(default_factory=list)
+    fixed_config: ServerConfig | None = None
+    user_action_needed: str = ""

@@ -12,6 +12,7 @@ from mcp_tap.config.detection import resolve_config_locations
 from mcp_tap.config.writer import write_server_config
 from mcp_tap.connection.tester import test_server_connection
 from mcp_tap.errors import McpTapError
+from mcp_tap.healing.retry import heal_and_retry
 from mcp_tap.installer.resolver import resolve_installer
 from mcp_tap.models import (
     ConfigLocation,
@@ -157,7 +158,32 @@ async def _configure_single(
         server_name, server_config, ctx
     )
 
-    return asdict(
+    # Attempt healing if validation failed
+    healing_info: dict[str, object] = {}
+    effective_config = server_config
+    if not validation_passed:
+        healed, effective_config, healing_info = await _try_heal(server_name, server_config, ctx)
+        if healed:
+            validation_passed = True
+            write_server_config(
+                Path(location.path),
+                server_name,
+                effective_config,
+                overwrite_existing=True,
+            )
+            test_result = await test_server_connection(
+                server_name,
+                effective_config,
+                timeout_seconds=15,
+            )
+            tools_discovered = list(test_result.tools_discovered)
+            tool_summary = (
+                f" Healed and discovered {len(tools_discovered)} tools: "
+                f"{', '.join(tools_discovered[:10])}"
+                f"{'...' if len(tools_discovered) > 10 else ''}."
+            )
+
+    result = asdict(
         ConfigureResult(
             success=True,
             server_name=server_name,
@@ -168,12 +194,15 @@ async def _configure_single(
                 f"{tool_summary} "
                 "Restart your MCP client to load it."
             ),
-            config_written=server_config.to_dict(),
+            config_written=effective_config.to_dict(),
             install_status="installed",
             tools_discovered=tools_discovered,
             validation_passed=validation_passed,
         )
     )
+    if healing_info:
+        result["healing"] = healing_info
+    return result
 
 
 async def _configure_multi(
@@ -188,12 +217,36 @@ async def _configure_multi(
         server_name, server_config, ctx
     )
 
+    # Attempt healing if validation failed
+    healing_info: dict[str, object] = {}
+    effective_config = server_config
+    if not validation_passed:
+        healed, effective_config, healing_info = await _try_heal(server_name, server_config, ctx)
+        if healed:
+            validation_passed = True
+            test_result = await test_server_connection(
+                server_name,
+                effective_config,
+                timeout_seconds=15,
+            )
+            tools_discovered = list(test_result.tools_discovered)
+            tool_summary = (
+                f" Healed and discovered {len(tools_discovered)} tools: "
+                f"{', '.join(tools_discovered[:10])}"
+                f"{'...' if len(tools_discovered) > 10 else ''}."
+            )
+
     per_client: list[dict[str, object]] = []
     success_count = 0
 
     for loc in locations:
         try:
-            write_server_config(Path(loc.path), server_name, server_config)
+            write_server_config(
+                Path(loc.path),
+                server_name,
+                effective_config,
+                overwrite_existing=True,
+            )
             per_client.append(
                 {
                     "client": loc.client.value,
@@ -227,13 +280,15 @@ async def _configure_multi(
                 f"clients ({', '.join(clients_ok)}).{tool_summary} "
                 "Restart your MCP clients to load it."
             ),
-            config_written=server_config.to_dict(),
+            config_written=effective_config.to_dict(),
             install_status="installed",
             tools_discovered=tools_discovered,
             validation_passed=validation_passed,
         )
     )
     result["per_client_results"] = per_client
+    if healing_info:
+        result["healing"] = healing_info
     return result
 
 
@@ -262,6 +317,55 @@ async def _validate(
         "environment variables or restart your MCP client."
     )
     return [], False, summary
+
+
+async def _try_heal(
+    server_name: str,
+    server_config: ServerConfig,
+    ctx: Context,
+) -> tuple[bool, ServerConfig, dict[str, object]]:
+    """Attempt self-healing after a validation failure.
+
+    Returns:
+        Tuple of (healed, effective_config, healing_info_dict).
+        If healed is True, effective_config is the fixed config.
+        healing_info_dict is always populated for inclusion in the response.
+    """
+    await ctx.info(f"Attempting self-healing for {server_name}...")
+
+    # Get a fresh error for healing
+    error_result = await test_server_connection(
+        server_name,
+        server_config,
+        timeout_seconds=15,
+    )
+    if error_result.success:
+        # Transient failure — it works now
+        return True, server_config, {"healed": True, "note": "Transient failure resolved."}
+
+    healing_result = await heal_and_retry(
+        server_name,
+        server_config,
+        error_result,
+    )
+
+    info: dict[str, object] = {
+        "healed": healing_result.fixed,
+        "attempts_count": len(healing_result.attempts),
+        "user_action_needed": healing_result.user_action_needed,
+    }
+
+    if healing_result.fixed and healing_result.fixed_config is not None:
+        await ctx.info(f"Self-healing succeeded for {server_name}.")
+        return True, healing_result.fixed_config, info
+
+    if healing_result.user_action_needed:
+        await ctx.info(
+            f"Self-healing for {server_name} requires user action: "
+            f"{healing_result.user_action_needed}"
+        )
+
+    return False, server_config, info
 
 
 def _parse_env_vars(env_vars: str) -> dict[str, str]:

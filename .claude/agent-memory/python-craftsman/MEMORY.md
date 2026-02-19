@@ -42,6 +42,20 @@
 - `asyncio_mode = "auto"` in pyproject.toml — no need for `@pytest.mark.asyncio`
 - VS Code auto-linter may modify files during editing — always re-check imports after edits
 
+## Healing Module (Issue #10)
+- `healing/` package: classifier.py, fixer.py, retry.py
+- `classify_error(ConnectionTestResult) -> DiagnosisResult` — pattern-matches error strings
+- `generate_fix(DiagnosisResult, ServerConfig) -> CandidateFix` — strategies per ErrorCategory
+- `heal_and_retry(name, config, error, ...) -> HealingResult` — orchestration loop
+- Models: `ErrorCategory(StrEnum)`, `DiagnosisResult`, `CandidateFix`, `HealingAttempt`, `HealingResult`
+- `HealingAttempt` fields: `diagnosis`, `fix_applied`, `success` (bool)
+- `HealingResult` fields: `fixed`, `attempts`, `fixed_config`, `user_action_needed`
+- Env var classifier: requires keywords AND (uppercase env var pattern OR "environment variable" phrase)
+- Auto-fixable: COMMAND_NOT_FOUND (path resolution), TIMEOUT (escalating timeouts), TRANSPORT_MISMATCH
+- User action required: CONNECTION_REFUSED, AUTH_FAILED, MISSING_ENV_VAR, PERMISSION_DENIED, UNKNOWN
+- Integrated into configure.py (_try_heal helper), test.py (auto_heal param), health.py (auto_heal param)
+- `_TIMEOUT_ESCALATION = (15, 30, 60)` for timeout category retries
+
 ## Conventions
 - Commit messages: English, no Co-Authored-By (per CLAUDE.md)
 - Comments/code in English, agent communication in Portuguese (BR)
