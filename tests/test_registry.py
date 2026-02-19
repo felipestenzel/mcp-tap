@@ -223,9 +223,7 @@ class TestRemotesFormat:
             "packages": [
                 {"registryType": "npm", "identifier": "@dual/server", "transport": "stdio"}
             ],
-            "remotes": [
-                {"type": "streamable-http", "url": "https://example.com/mcp"}
-            ],
+            "remotes": [{"type": "streamable-http", "url": "https://example.com/mcp"}],
         }
         server = client._parse_server(raw)
         assert len(server.packages) == 1
@@ -237,9 +235,7 @@ class TestRemotesFormat:
         raw = {
             "name": "weird-transport",
             "description": "Unknown transport type",
-            "remotes": [
-                {"type": "grpc", "url": "https://example.com/mcp"}
-            ],
+            "remotes": [{"type": "grpc", "url": "https://example.com/mcp"}],
         }
         server = client._parse_server(raw)
         assert server.packages[0].transport.value == "streamable-http"
