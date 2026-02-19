@@ -609,9 +609,7 @@ class TestHealthSemaphoreConcurrency:
     ):
         """Should check all servers even with semaphore limiting."""
         servers = [_installed_server(f"server-{i}") for i in range(8)]
-        mock_test_conn.side_effect = [
-            _ok_connection(f"server-{i}") for i in range(8)
-        ]
+        mock_test_conn.side_effect = [_ok_connection(f"server-{i}") for i in range(8)]
 
         results = await _check_all_servers(servers, timeout_seconds=15)
 

@@ -119,8 +119,7 @@ async def check_health(
         conflicts = detect_tool_conflicts(server_healths)
         if conflicts:
             result["tool_conflicts"] = [
-                {"tool_name": c.tool_name, "servers": c.servers}
-                for c in conflicts
+                {"tool_name": c.tool_name, "servers": c.servers} for c in conflicts
             ]
 
         return result

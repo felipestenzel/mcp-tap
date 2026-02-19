@@ -167,9 +167,7 @@ def add_server_to_lockfile(
         tools=tools_list,
         tools_hash=compute_tools_hash(tools_list),
         installed_at=(
-            existing.servers[name].installed_at
-            if existing and name in existing.servers
-            else now
+            existing.servers[name].installed_at if existing and name in existing.servers else now
         ),
         verified_at=now if tools else None,
         verified_healthy=bool(tools),

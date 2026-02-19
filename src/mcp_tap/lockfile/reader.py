@@ -42,8 +42,7 @@ def parse_lockfile(data: dict) -> Lockfile:
     version = data.get("lockfile_version", 0)
     if version != 1:
         raise LockfileReadError(
-            f"Unsupported lockfile version {version}. "
-            "Update mcp-tap to read this lockfile."
+            f"Unsupported lockfile version {version}. Update mcp-tap to read this lockfile."
         )
 
     servers: dict[str, LockedServer] = {}

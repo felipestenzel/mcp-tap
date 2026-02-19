@@ -201,9 +201,7 @@ class TestWriteServerConfigLocking:
 
         def _write(index: int) -> None:
             try:
-                write_server_config(
-                    f, f"new-{index}", ServerConfig(command="npx", args=[])
-                )
+                write_server_config(f, f"new-{index}", ServerConfig(command="npx", args=[]))
             except Exception as exc:
                 errors.append(exc)
 

@@ -64,6 +64,7 @@ def _check_rate_limit(resp: httpx.Response) -> None:
 
 # ─── Auth headers ──────────────────────────────────────────
 
+
 def _github_headers() -> dict[str, str]:
     headers = {"Accept": "application/vnd.github+json"}
     token = os.environ.get("GITHUB_TOKEN")

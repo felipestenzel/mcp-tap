@@ -258,8 +258,7 @@ class TestGitHubCacheGet:
 
         # Patch time.monotonic to simulate TTL expiry
         original_mono = time.monotonic()
-        with patch("mcp_tap.evaluation.github.time.monotonic",
-                    return_value=original_mono + 901):
+        with patch("mcp_tap.evaluation.github.time.monotonic", return_value=original_mono + 901):
             result = _cache_get("expired/repo")
 
         assert result is None
@@ -434,9 +433,7 @@ class TestFetchRepoMetadataCache:
         gh_mod._rate_limit_reset = time.monotonic() + 9999
 
         client = AsyncMock(spec=httpx.AsyncClient)
-        result = await fetch_repo_metadata(
-            "https://github.com/rate/limited", client
-        )
+        result = await fetch_repo_metadata("https://github.com/rate/limited", client)
 
         assert result is None
         client.get.assert_not_called()
@@ -454,9 +451,7 @@ class TestFetchRepoMetadataCache:
         client = AsyncMock(spec=httpx.AsyncClient)
         client.get = AsyncMock(return_value=_mock_github_response(data))
 
-        result = await fetch_repo_metadata(
-            "https://github.com/reset/allowed", client
-        )
+        result = await fetch_repo_metadata("https://github.com/reset/allowed", client)
 
         assert result is not None
         client.get.assert_called_once()
