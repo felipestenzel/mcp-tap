@@ -1,7 +1,7 @@
 # Package and Publish — PyPI + npm Wrapper
 
 - **Date**: 2026-02-19
-- **Status**: `in-progress`
+- **Status**: `done`
 - **Branch**: `feature/2026-02-19-publish`
 - **Priority**: `medium`
 - **Issue**: #9
@@ -55,11 +55,16 @@ N/A — final packaging step.
 2. Verified `uv build` produces correct wheel with all modules and entry point.
 3. Confirmed entry point `mcp-tap = mcp_tap:main` works.
 4. npm wrapper deferred — not needed for v0.1.0 (Python-only launch).
-5. PyPI publish and GitHub release to be done manually by maintainer.
+5. GitHub Actions publish workflow with trusted publishing (no tokens in repo).
+6. PyPI trusted publisher configured, v0.1.0 published automatically on tag push.
+7. GitHub Release v0.1.0 created.
+8. Branch `main` protected (require CI, no force push, no deletion).
 
 ## Files Changed
 
 - `README.md` — Full rewrite for v0.1.0 launch
+- `.github/workflows/publish.yml` — Publish workflow (trusted publishing)
+- `tests/smoke_test.py` — Smoke test for wheel/sdist validation
 - `docs/issues/2026-02-19_package-publish.md` — Status update
 
 ## Verification
@@ -70,6 +75,7 @@ N/A — final packaging step.
 - [x] Import from wheel works (`version=0.1.0`)
 - [x] README has complete install instructions for all 4 clients
 - [x] 320 tests passing, ruff clean
-- [ ] `pip install mcp-tap` from PyPI (pending publish)
-- [ ] `uvx mcp-tap` from PyPI (pending publish)
-- [ ] PyPI page shows correct metadata (pending publish)
+- [x] `pip index versions mcp-tap` shows 0.1.0
+- [x] PyPI page live at https://pypi.org/project/mcp-tap/
+- [x] GitHub Release at https://github.com/felipestenzel/mcp-tap/releases/tag/v0.1.0
+- [x] Branch `main` protected with required CI checks
