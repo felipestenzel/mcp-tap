@@ -11,6 +11,7 @@ from mcp_tap.config.detection import detect_clients, resolve_config_path
 from mcp_tap.config.reader import parse_servers, read_config
 from mcp_tap.errors import McpTapError
 from mcp_tap.models import MCPClient
+from mcp_tap.scanner.credentials import map_credentials
 from mcp_tap.scanner.detector import scan_project as _scan_project
 
 
@@ -63,6 +64,23 @@ async def scan_project(
             asdict(tech) | {"category": tech.category.value} for tech in profile.technologies
         ]
 
+        # Map credentials for recommended servers
+        credential_mappings = map_credentials(
+            profile.recommendations,
+            profile.env_var_names,
+        )
+        cred_dicts = [
+            {
+                "server_name": m.server_name,
+                "required_env_var": m.required_env_var,
+                "available_env_var": m.available_env_var,
+                "source": m.source,
+                "status": m.status,
+                "help_url": m.help_url,
+            }
+            for m in credential_mappings
+        ]
+
         summary = _build_summary(
             project_path=profile.path,
             tech_count=len(profile.technologies),
@@ -76,6 +94,7 @@ async def scan_project(
             "detected_technologies": technologies,
             "env_vars_found": profile.env_var_names,
             "recommendations": recommendations,
+            "credential_mappings": cred_dicts,
             "already_installed": already_installed,
             "summary": summary,
         }

@@ -1,8 +1,8 @@
 # Credential Detection and Mapping
 
 - **Date**: 2026-02-19
-- **Status**: `open`
-- **Branch**: `feature/YYYY-MM-DD-credential-detection`
+- **Status**: `done`
+- **Branch**: `feature/2026-02-19-v02-roadmap`
 - **Priority**: `high`
 - **Issue**: #11
 
@@ -173,12 +173,16 @@ Enrich search results with credential availability when `project_path` is provid
 
 ## Solution
 
-(Fill after implementation)
+Implemented `scanner/credentials.py` with static compatibility mapping (COMPATIBLE_VARS), help URL mapping (CREDENTIAL_HELP), and server-to-env-var mapping (SERVER_ENV_VARS). The `map_credentials()` function matches required env vars against available project vars using exact match, compatible match, or missing status. Integrated into `scan_project` (adds `credential_mappings` to output) and `search_servers` (adds `credential_status` + `credential_details` per result when `project_path` is provided).
 
 ## Files Changed
 
-(Fill after implementation)
+- `src/mcp_tap/models.py` — Added `CredentialMapping` dataclass
+- `src/mcp_tap/scanner/credentials.py` — NEW: credential mapping logic
+- `src/mcp_tap/tools/scan.py` — Include credential mappings in output
+- `src/mcp_tap/tools/search.py` — Add credential status when project_path provided
+- `tests/test_credentials.py` — NEW: 20 tests
 
 ## Lessons Learned
 
-(Fill after implementation)
+Static compatibility mapping is surprisingly effective for common env var patterns. The reverse lookup (checking if `required` is itself a compatible name) catches edge cases.

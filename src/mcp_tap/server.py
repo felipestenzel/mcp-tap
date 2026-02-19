@@ -13,6 +13,7 @@ from mcp.types import ToolAnnotations
 from mcp_tap.registry.client import RegistryClient
 from mcp_tap.tools.configure import configure_server
 from mcp_tap.tools.health import check_health
+from mcp_tap.tools.inspect import inspect_server
 from mcp_tap.tools.list import list_installed
 from mcp_tap.tools.remove import remove_server
 from mcp_tap.tools.scan import scan_project
@@ -58,6 +59,9 @@ mcp = FastMCP(
         "Tests each one concurrently and reports healthy/unhealthy/timeout.\n"
         "\n"
         "## Other tools\n"
+        "- **inspect_server** — Fetch a server's README and extract config hints "
+        "(env vars, transport, install commands). Use when search_servers data is "
+        "incomplete or for servers not in the registry.\n"
         "- **list_installed** — Show all configured servers (secrets are masked).\n"
         "- **test_connection** — Test a single server by name.\n"
         "- **remove_server** — Remove a server from config. Supports multi-client.\n"
@@ -78,6 +82,7 @@ mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))(search_servers)
 mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))(list_installed)
 mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))(test_connection)
 mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))(check_health)
+mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))(inspect_server)
 
 # ─── Destructive tools ────────────────────────────────────────
 mcp.tool(annotations=ToolAnnotations(destructiveHint=True))(configure_server)

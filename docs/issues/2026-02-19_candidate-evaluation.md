@@ -1,8 +1,8 @@
 # Candidate Evaluation — Compare Server Alternatives by Maturity
 
 - **Date**: 2026-02-19
-- **Status**: `open`
-- **Branch**: `feature/YYYY-MM-DD-candidate-evaluation`
+- **Status**: `done`
+- **Branch**: `feature/2026-02-19-v02-roadmap`
 - **Priority**: `medium`
 - **Issue**: #13
 
@@ -193,12 +193,17 @@ When multiple servers match the same need, the tool should output a comparison:
 
 ## Solution
 
-(Fill after implementation)
+Implemented `evaluation/` module with `github.py` (public API metadata fetcher, unauthenticated) and `scorer.py` (composite scoring: official +0.3, stars log-scale up to +0.2, activity recency up to +0.3, archived -0.5, high issues -0.1). Tiers: recommended/acceptable/caution/avoid. Integrated into `search_servers` with `evaluate: bool = True` parameter — fetches signals concurrently for all results, deduplicates by repo URL.
 
 ## Files Changed
 
-(Fill after implementation)
+- `src/mcp_tap/models.py` — Added `MaturitySignals`, `MaturityScore` dataclasses
+- `src/mcp_tap/evaluation/__init__.py` — NEW
+- `src/mcp_tap/evaluation/github.py` — NEW: GitHub API metadata fetcher
+- `src/mcp_tap/evaluation/scorer.py` — NEW: maturity scoring logic
+- `src/mcp_tap/tools/search.py` — Added `evaluate` param, maturity integration
+- `tests/test_evaluation.py` — NEW: 23 tests
 
 ## Lessons Learned
 
-(Fill after implementation)
+Log-scale scoring for stars prevents popular repos from dominating. Activity recency (30/90/180 day buckets) is the most useful signal for maintenance status.

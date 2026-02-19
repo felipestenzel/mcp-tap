@@ -1,8 +1,8 @@
 # Self-Healing Retry Loop — Diagnose, Fix, Retry
 
 - **Date**: 2026-02-19
-- **Status**: `open`
-- **Branch**: `feature/YYYY-MM-DD-self-healing`
+- **Status**: `done`
+- **Branch**: `feature/2026-02-19-self-healing` (merged via PR #11)
 - **Priority**: `critical`
 - **Issue**: #10
 
@@ -192,12 +192,20 @@ No error diagnosis logic exists — `ConnectionTestResult.error` is a raw string
 
 ## Solution
 
-(Fill after implementation)
+Implemented `healing/` module with three components: `classifier.py` (8 error categories via pattern matching), `fixer.py` (auto-fix + user-action guidance per category), and `retry.py` (up to 3 iterations of diagnose → fix → re-validate). Integrated into `configure_server`, `test_connection`, and `check_health` with `auto_heal` parameter.
 
 ## Files Changed
 
-(Fill after implementation)
+- `src/mcp_tap/healing/__init__.py` — NEW
+- `src/mcp_tap/healing/classifier.py` — NEW: error classification
+- `src/mcp_tap/healing/fixer.py` — NEW: fix generation
+- `src/mcp_tap/healing/retry.py` — NEW: retry loop
+- `src/mcp_tap/models.py` — Added ErrorCategory, DiagnosisResult, CandidateFix, HealingAttempt, HealingResult
+- `src/mcp_tap/tools/configure.py` — Healing integration
+- `src/mcp_tap/tools/health.py` — Added auto_heal parameter
+- `src/mcp_tap/tools/test.py` — Added auto_heal parameter
+- `tests/test_healing.py` — 85 tests
 
 ## Lessons Learned
 
-(Fill after implementation)
+Pattern matching on error strings works well for common categories. The retry loop architecture (diagnose → fix → validate) is extensible for new error types.
