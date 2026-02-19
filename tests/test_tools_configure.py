@@ -533,8 +533,13 @@ class TestConfigureResultFields:
         assert isinstance(result, dict)
         # Verify all expected keys are present
         expected_keys = {
-            "success", "server_name", "config_file", "message",
-            "config_written", "install_status", "tools_discovered",
+            "success",
+            "server_name",
+            "config_file",
+            "message",
+            "config_written",
+            "install_status",
+            "tools_discovered",
             "validation_passed",
         }
         assert expected_keys == set(result.keys())
@@ -720,6 +725,7 @@ class TestConfigurePypiRegistry:
         # Verify the RegistryType.PYPI was passed
         call_args = mock_resolve_installer.call_args[0]
         from mcp_tap.models import RegistryType
+
         assert call_args[0] == RegistryType.PYPI
 
         assert result["success"] is True

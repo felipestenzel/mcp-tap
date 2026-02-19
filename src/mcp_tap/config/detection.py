@@ -15,8 +15,7 @@ def _claude_desktop_config() -> Path | None:
     match sys.platform:
         case "darwin":
             return (
-                home / "Library" / "Application Support" / "Claude"
-                / "claude_desktop_config.json"
+                home / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json"
             )
         case "linux":
             xdg = os.environ.get("XDG_CONFIG_HOME", str(home / ".config"))
@@ -89,9 +88,7 @@ def resolve_config_path(client: MCPClient | str) -> ConfigLocation:
 
     path = path_fn()
     if path is None:
-        raise ClientNotFoundError(
-            f"{client_enum.value} is not supported on {sys.platform}"
-        )
+        raise ClientNotFoundError(f"{client_enum.value} is not supported on {sys.platform}")
 
     return ConfigLocation(
         client=client_enum,

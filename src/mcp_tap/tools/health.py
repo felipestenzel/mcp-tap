@@ -104,10 +104,7 @@ async def _check_all_servers(
     Uses asyncio.gather with return_exceptions=True so that one server's
     failure does not prevent checking the rest.
     """
-    tasks = [
-        _check_single_server(server, timeout_seconds)
-        for server in servers
-    ]
+    tasks = [_check_single_server(server, timeout_seconds) for server in servers]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
     healths: list[ServerHealth] = []

@@ -155,10 +155,12 @@ class TestScoreMultipleTechs:
 
     def test_best_match_wins(self):
         """Should return highest relevance when multiple techs present."""
-        profile = _profile_with_techs([
-            ("python", TechnologyCategory.LANGUAGE),
-            ("postgresql", TechnologyCategory.DATABASE),
-        ])
+        profile = _profile_with_techs(
+            [
+                ("python", TechnologyCategory.LANGUAGE),
+                ("postgresql", TechnologyCategory.DATABASE),
+            ]
+        )
 
         # "postgresql" exact match should give "high" even though "python" doesn't match
         relevance, reason = score_result(
@@ -172,10 +174,12 @@ class TestScoreMultipleTechs:
 
     def test_first_exact_match_takes_precedence(self):
         """Should return the first matching tech in iteration order."""
-        profile = _profile_with_techs([
-            ("python", TechnologyCategory.LANGUAGE),
-            ("redis", TechnologyCategory.DATABASE),
-        ])
+        profile = _profile_with_techs(
+            [
+                ("python", TechnologyCategory.LANGUAGE),
+                ("redis", TechnologyCategory.DATABASE),
+            ]
+        )
 
         relevance, reason = score_result(
             result_name="python-redis-bridge",
@@ -189,10 +193,12 @@ class TestScoreMultipleTechs:
 
     def test_category_match_when_no_exact_match(self):
         """Should fall through to category match when no exact name match."""
-        profile = _profile_with_techs([
-            ("mysql", TechnologyCategory.DATABASE),
-            ("react", TechnologyCategory.FRAMEWORK),
-        ])
+        profile = _profile_with_techs(
+            [
+                ("mysql", TechnologyCategory.DATABASE),
+                ("react", TechnologyCategory.FRAMEWORK),
+            ]
+        )
 
         relevance, _reason = score_result(
             result_name="data-explorer",

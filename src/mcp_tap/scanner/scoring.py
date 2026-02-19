@@ -14,19 +14,42 @@ _RELEVANCE_ORDER: dict[str, int] = {"high": 0, "medium": 1, "low": 2}
 # Map technology categories to keywords that might appear in server descriptions
 _CATEGORY_KEYWORDS: dict[TechnologyCategory, list[str]] = {
     TechnologyCategory.DATABASE: [
-        "database", "sql", "query", "db", "data", "storage", "cache",
+        "database",
+        "sql",
+        "query",
+        "db",
+        "data",
+        "storage",
+        "cache",
     ],
     TechnologyCategory.FRAMEWORK: [
-        "framework", "web", "api", "server", "backend", "frontend",
+        "framework",
+        "web",
+        "api",
+        "server",
+        "backend",
+        "frontend",
     ],
     TechnologyCategory.SERVICE: [
-        "integration", "api", "service", "webhook", "notification",
+        "integration",
+        "api",
+        "service",
+        "webhook",
+        "notification",
     ],
     TechnologyCategory.PLATFORM: [
-        "deploy", "cloud", "container", "hosting", "ci", "cd",
+        "deploy",
+        "cloud",
+        "container",
+        "hosting",
+        "ci",
+        "cd",
     ],
     TechnologyCategory.LANGUAGE: [
-        "sdk", "runtime", "compiler", "interpreter",
+        "sdk",
+        "runtime",
+        "compiler",
+        "interpreter",
     ],
 }
 

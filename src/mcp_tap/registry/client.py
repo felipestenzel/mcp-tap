@@ -54,9 +54,7 @@ class RegistryClient:
             )
             response.raise_for_status()
         except httpx.HTTPError as exc:
-            raise RegistryError(
-                f"Failed to search MCP Registry for '{query}': {exc}"
-            ) from exc
+            raise RegistryError(f"Failed to search MCP Registry for '{query}': {exc}") from exc
 
         data = response.json()
         servers_raw = data.get("servers", [])
@@ -72,9 +70,7 @@ class RegistryClient:
                 return None
             response.raise_for_status()
         except httpx.HTTPError as exc:
-            raise RegistryError(
-                f"Failed to fetch server '{name}': {exc}"
-            ) from exc
+            raise RegistryError(f"Failed to fetch server '{name}': {exc}") from exc
 
         return self._parse_server(response.json())
 

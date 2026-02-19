@@ -38,8 +38,7 @@ async def resolve_installer(registry_type: RegistryType | str) -> PackageInstall
     if not await installer.is_available():
         url = _INSTALL_URLS.get(rt, "")
         raise InstallerNotFoundError(
-            f"Package manager for {rt.value} is not installed. "
-            f"Install it from {url}"
+            f"Package manager for {rt.value} is not installed. Install it from {url}"
         )
 
     return installer

@@ -47,15 +47,16 @@ async def scan_project(
             is_installed = rec.server_name in installed_names
             if is_installed:
                 already_installed.append(rec.server_name)
-            recommendations.append({
-                **asdict(rec),
-                "registry_type": rec.registry_type.value,
-                "already_installed": is_installed,
-            })
+            recommendations.append(
+                {
+                    **asdict(rec),
+                    "registry_type": rec.registry_type.value,
+                    "already_installed": is_installed,
+                }
+            )
 
         technologies = [
-            asdict(tech) | {"category": tech.category.value}
-            for tech in profile.technologies
+            asdict(tech) | {"category": tech.category.value} for tech in profile.technologies
         ]
 
         summary = _build_summary(
@@ -125,17 +126,13 @@ def _build_summary(
     if rec_count == 0:
         parts.append("No MCP server recommendations for this stack.")
     elif missing == 0:
-        parts.append(
-            f"All {rec_count} recommended MCP servers are already installed."
-        )
+        parts.append(f"All {rec_count} recommended MCP servers are already installed.")
     else:
         parts.append(
             f"{rec_count} MCP servers recommended, "
             f"{installed_count} already installed, "
             f"{missing} to add."
         )
-        parts.append(
-            "Use configure_server to install the missing ones."
-        )
+        parts.append("Use configure_server to install the missing ones.")
 
     return " ".join(parts)

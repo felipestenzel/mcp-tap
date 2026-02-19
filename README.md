@@ -1,5 +1,7 @@
 # mcp-tap
 
+[![CI](https://github.com/felipestenzel/mcp-tap/actions/workflows/ci.yml/badge.svg)](https://github.com/felipestenzel/mcp-tap/actions/workflows/ci.yml)
+
 **The last MCP server you install by hand.**
 
 Discover, install, and configure MCP servers from inside your AI assistant.
