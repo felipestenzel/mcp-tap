@@ -7,67 +7,51 @@ from pathlib import Path
 
 from mcp.server.fastmcp import Context
 
-from mcp_tap.config.detection import detect_clients, resolve_config_path
+from mcp_tap.config.detection import resolve_config_locations
 from mcp_tap.config.writer import remove_server_config
 from mcp_tap.errors import McpTapError
-from mcp_tap.models import MCPClient, RemoveResult
+from mcp_tap.models import RemoveResult
+
+_NO_CLIENT_MSG = "No MCP client detected."
 
 
 async def remove_server(
     server_name: str,
     ctx: Context,
-    client: str = "",
+    clients: str = "",
+    scope: str = "user",
+    project_path: str = "",
 ) -> dict[str, object]:
     """Remove an MCP server from your AI client's configuration.
 
     Args:
         server_name: Name of the server to remove (as shown by list_installed).
-        client: Which MCP client's config to modify. Auto-detects if empty.
+        clients: Target MCP client(s). Comma-separated names like
+            "claude_desktop,cursor", "all" for every detected client,
+            or empty to auto-detect.
+        scope: "user" for global config (default), "project" for project-scoped.
+        project_path: Path to the project directory. Required when scope="project".
 
     Returns:
-        Removal result showing what was removed.
+        Removal result showing what was removed. When removing from multiple
+        clients, includes per_client_results.
     """
     try:
-        if client:
-            location = resolve_config_path(MCPClient(client))
-        else:
-            clients = detect_clients()
-            if not clients:
-                return asdict(
-                    RemoveResult(
-                        success=False,
-                        server_name=server_name,
-                        message="No MCP client detected.",
-                    )
-                )
-            location = clients[0]
-
-        removed = remove_server_config(Path(location.path), server_name)
-
-        if removed is None:
+        locations = resolve_config_locations(clients, scope=scope, project_path=project_path)
+        if not locations:
             return asdict(
                 RemoveResult(
                     success=False,
                     server_name=server_name,
-                    config_file=location.path,
-                    message=(
-                        f"Server '{server_name}' not found in {location.path}. "
-                        "Use list_installed to see configured servers."
-                    ),
+                    message=_NO_CLIENT_MSG,
                 )
             )
 
-        return asdict(
-            RemoveResult(
-                success=True,
-                server_name=server_name,
-                config_file=location.path,
-                message=(
-                    f"Server '{server_name}' removed from {location.path}. "
-                    "Restart your MCP client to apply."
-                ),
-            )
-        )
+        if len(locations) == 1:
+            return _remove_single(server_name, locations[0])
+
+        return _remove_multi(server_name, locations)
+
     except McpTapError as exc:
         return asdict(
             RemoveResult(
@@ -85,3 +69,96 @@ async def remove_server(
                 message=f"Internal error: {type(exc).__name__}",
             )
         )
+
+
+def _remove_single(server_name: str, location: object) -> dict[str, object]:
+    """Remove a server from a single client config."""
+    removed = remove_server_config(Path(location.path), server_name)
+
+    if removed is None:
+        return asdict(
+            RemoveResult(
+                success=False,
+                server_name=server_name,
+                config_file=location.path,
+                message=(
+                    f"Server '{server_name}' not found in {location.path}. "
+                    "Use list_installed to see configured servers."
+                ),
+            )
+        )
+
+    return asdict(
+        RemoveResult(
+            success=True,
+            server_name=server_name,
+            config_file=location.path,
+            message=(
+                f"Server '{server_name}' removed from "
+                f"{location.client.value} ({location.scope}) at {location.path}. "
+                "Restart your MCP client to apply."
+            ),
+        )
+    )
+
+
+def _remove_multi(server_name: str, locations: list[object]) -> dict[str, object]:
+    """Remove a server from multiple client configs."""
+    per_client: list[dict[str, object]] = []
+    removed_count = 0
+
+    for loc in locations:
+        try:
+            removed = remove_server_config(Path(loc.path), server_name)
+            if removed is not None:
+                per_client.append(
+                    {
+                        "client": loc.client.value,
+                        "scope": loc.scope,
+                        "config_file": loc.path,
+                        "success": True,
+                        "removed": True,
+                    }
+                )
+                removed_count += 1
+            else:
+                per_client.append(
+                    {
+                        "client": loc.client.value,
+                        "scope": loc.scope,
+                        "config_file": loc.path,
+                        "success": True,
+                        "removed": False,
+                        "message": f"Server '{server_name}' not found in this config.",
+                    }
+                )
+        except McpTapError as exc:
+            per_client.append(
+                {
+                    "client": loc.client.value,
+                    "scope": loc.scope,
+                    "config_file": loc.path,
+                    "success": False,
+                    "error": str(exc),
+                }
+            )
+
+    clients_removed = [r["client"] for r in per_client if r.get("removed")]
+
+    result = asdict(
+        RemoveResult(
+            success=removed_count > 0,
+            server_name=server_name,
+            config_file=", ".join(r["config_file"] for r in per_client if r.get("removed")),
+            message=(
+                f"Server '{server_name}' removed from {removed_count}/{len(locations)} "
+                f"clients ({', '.join(clients_removed) or 'none'}). "
+                "Restart your MCP clients to apply."
+                if removed_count > 0
+                else f"Server '{server_name}' was not found in any of the "
+                f"{len(locations)} client configs checked."
+            ),
+        )
+    )
+    result["per_client_results"] = per_client
+    return result

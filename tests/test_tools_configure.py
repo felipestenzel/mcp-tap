@@ -13,7 +13,7 @@ from mcp_tap.models import (
     MCPClient,
     ServerConfig,
 )
-from mcp_tap.tools.configure import _parse_env_vars, _resolve_client_location, configure_server
+from mcp_tap.tools.configure import _parse_env_vars, configure_server
 
 # ─── Helpers ─────────────────────────────────────────────────
 
@@ -29,9 +29,10 @@ def _make_ctx() -> MagicMock:
 def _fake_location(
     client: MCPClient = MCPClient.CLAUDE_CODE,
     path: str = "/tmp/fake_config.json",
+    scope: str = "user",
     exists: bool = True,
 ) -> ConfigLocation:
-    return ConfigLocation(client=client, path=path, scope="user", exists=exists)
+    return ConfigLocation(client=client, path=path, scope=scope, exists=exists)
 
 
 def _ok_install_result(identifier: str = "test-pkg") -> InstallResult:
@@ -101,16 +102,16 @@ class TestConfigureHappyPath:
     @patch("mcp_tap.tools.configure.test_server_connection")
     @patch("mcp_tap.tools.configure.write_server_config")
     @patch("mcp_tap.tools.configure.resolve_installer")
-    @patch("mcp_tap.tools.configure._resolve_client_location")
+    @patch("mcp_tap.tools.configure.resolve_config_locations")
     async def test_full_success_flow(
         self,
-        mock_location: MagicMock,
+        mock_locations: MagicMock,
         mock_resolve_installer: AsyncMock,
         mock_write: MagicMock,
         mock_test_conn: AsyncMock,
     ):
         """Should install, write config, validate, and return success."""
-        mock_location.return_value = _fake_location()
+        mock_locations.return_value = [_fake_location()]
         installer = _mock_installer()
         mock_resolve_installer.return_value = installer
         mock_test_conn.return_value = _ok_connection_result("pg-server")
@@ -120,7 +121,7 @@ class TestConfigureHappyPath:
             server_name="pg-server",
             package_identifier="@modelcontextprotocol/server-postgres",
             ctx=ctx,
-            client="claude_code",
+            clients="claude_code",
             registry_type="npm",
             env_vars="POSTGRES_URL=postgresql://localhost/db",
         )
@@ -135,16 +136,16 @@ class TestConfigureHappyPath:
     @patch("mcp_tap.tools.configure.test_server_connection")
     @patch("mcp_tap.tools.configure.write_server_config")
     @patch("mcp_tap.tools.configure.resolve_installer")
-    @patch("mcp_tap.tools.configure._resolve_client_location")
+    @patch("mcp_tap.tools.configure.resolve_config_locations")
     async def test_config_written_contains_command_and_args(
         self,
-        mock_location: MagicMock,
+        mock_locations: MagicMock,
         mock_resolve_installer: AsyncMock,
         mock_write: MagicMock,
         mock_test_conn: AsyncMock,
     ):
         """Should include config_written dict with command, args, env."""
-        mock_location.return_value = _fake_location()
+        mock_locations.return_value = [_fake_location()]
         mock_resolve_installer.return_value = _mock_installer()
         mock_test_conn.return_value = _ok_connection_result()
 
@@ -153,7 +154,7 @@ class TestConfigureHappyPath:
             server_name="test-server",
             package_identifier="test-pkg",
             ctx=ctx,
-            client="claude_code",
+            clients="claude_code",
             env_vars="KEY=value",
         )
 
@@ -165,17 +166,17 @@ class TestConfigureHappyPath:
     @patch("mcp_tap.tools.configure.test_server_connection")
     @patch("mcp_tap.tools.configure.write_server_config")
     @patch("mcp_tap.tools.configure.resolve_installer")
-    @patch("mcp_tap.tools.configure._resolve_client_location")
+    @patch("mcp_tap.tools.configure.resolve_config_locations")
     async def test_write_server_config_called_correctly(
         self,
-        mock_location: MagicMock,
+        mock_locations: MagicMock,
         mock_resolve_installer: AsyncMock,
         mock_write: MagicMock,
         mock_test_conn: AsyncMock,
     ):
         """Should call write_server_config with correct path and config."""
         loc = _fake_location(path="/home/user/.claude.json")
-        mock_location.return_value = loc
+        mock_locations.return_value = [loc]
         mock_resolve_installer.return_value = _mock_installer()
         mock_test_conn.return_value = _ok_connection_result()
 
@@ -184,7 +185,7 @@ class TestConfigureHappyPath:
             server_name="my-server",
             package_identifier="pkg",
             ctx=ctx,
-            client="claude_code",
+            clients="claude_code",
         )
 
         mock_write.assert_called_once()
@@ -196,16 +197,16 @@ class TestConfigureHappyPath:
     @patch("mcp_tap.tools.configure.test_server_connection")
     @patch("mcp_tap.tools.configure.write_server_config")
     @patch("mcp_tap.tools.configure.resolve_installer")
-    @patch("mcp_tap.tools.configure._resolve_client_location")
+    @patch("mcp_tap.tools.configure.resolve_config_locations")
     async def test_message_mentions_restart(
         self,
-        mock_location: MagicMock,
+        mock_locations: MagicMock,
         mock_resolve_installer: AsyncMock,
         mock_write: MagicMock,
         mock_test_conn: AsyncMock,
     ):
         """Should tell user to restart their MCP client."""
-        mock_location.return_value = _fake_location()
+        mock_locations.return_value = [_fake_location()]
         mock_resolve_installer.return_value = _mock_installer()
         mock_test_conn.return_value = _ok_connection_result()
 
@@ -214,7 +215,7 @@ class TestConfigureHappyPath:
             server_name="s",
             package_identifier="p",
             ctx=ctx,
-            client="claude_code",
+            clients="claude_code",
         )
 
         assert "Restart" in result["message"]
@@ -230,15 +231,15 @@ class TestConfigureInstallFails:
 
     @patch("mcp_tap.tools.configure.write_server_config")
     @patch("mcp_tap.tools.configure.resolve_installer")
-    @patch("mcp_tap.tools.configure._resolve_client_location")
+    @patch("mcp_tap.tools.configure.resolve_config_locations")
     async def test_install_failure_returns_error(
         self,
-        mock_location: MagicMock,
+        mock_locations: MagicMock,
         mock_resolve_installer: AsyncMock,
         mock_write: MagicMock,
     ):
         """Should return success=False when install fails."""
-        mock_location.return_value = _fake_location()
+        mock_locations.return_value = [_fake_location()]
         installer = _mock_installer(install_result=_failed_install_result("bad-pkg"))
         mock_resolve_installer.return_value = installer
 
@@ -247,7 +248,7 @@ class TestConfigureInstallFails:
             server_name="bad-server",
             package_identifier="bad-pkg",
             ctx=ctx,
-            client="claude_code",
+            clients="claude_code",
         )
 
         assert result["success"] is False
@@ -256,15 +257,15 @@ class TestConfigureInstallFails:
 
     @patch("mcp_tap.tools.configure.write_server_config")
     @patch("mcp_tap.tools.configure.resolve_installer")
-    @patch("mcp_tap.tools.configure._resolve_client_location")
+    @patch("mcp_tap.tools.configure.resolve_config_locations")
     async def test_install_failure_does_not_write_config(
         self,
-        mock_location: MagicMock,
+        mock_locations: MagicMock,
         mock_resolve_installer: AsyncMock,
         mock_write: MagicMock,
     ):
         """Should NOT write config when install fails."""
-        mock_location.return_value = _fake_location()
+        mock_locations.return_value = [_fake_location()]
         installer = _mock_installer(install_result=_failed_install_result())
         mock_resolve_installer.return_value = installer
 
@@ -273,20 +274,20 @@ class TestConfigureInstallFails:
             server_name="s",
             package_identifier="p",
             ctx=ctx,
-            client="claude_code",
+            clients="claude_code",
         )
 
         mock_write.assert_not_called()
 
     @patch("mcp_tap.tools.configure.resolve_installer")
-    @patch("mcp_tap.tools.configure._resolve_client_location")
+    @patch("mcp_tap.tools.configure.resolve_config_locations")
     async def test_installer_not_found_returns_error(
         self,
-        mock_location: MagicMock,
+        mock_locations: MagicMock,
         mock_resolve_installer: AsyncMock,
     ):
         """Should return error when package manager is not available."""
-        mock_location.return_value = _fake_location()
+        mock_locations.return_value = [_fake_location()]
         mock_resolve_installer.side_effect = InstallerNotFoundError(
             "Package manager for npm is not installed."
         )
@@ -296,7 +297,7 @@ class TestConfigureInstallFails:
             server_name="s",
             package_identifier="p",
             ctx=ctx,
-            client="claude_code",
+            clients="claude_code",
         )
 
         assert result["success"] is False
@@ -314,16 +315,16 @@ class TestConfigureValidationFails:
     @patch("mcp_tap.tools.configure.test_server_connection")
     @patch("mcp_tap.tools.configure.write_server_config")
     @patch("mcp_tap.tools.configure.resolve_installer")
-    @patch("mcp_tap.tools.configure._resolve_client_location")
+    @patch("mcp_tap.tools.configure.resolve_config_locations")
     async def test_validation_failure_still_succeeds(
         self,
-        mock_location: MagicMock,
+        mock_locations: MagicMock,
         mock_resolve_installer: AsyncMock,
         mock_write: MagicMock,
         mock_test_conn: AsyncMock,
     ):
         """Should return success=True even when validation fails (config is written)."""
-        mock_location.return_value = _fake_location()
+        mock_locations.return_value = [_fake_location()]
         mock_resolve_installer.return_value = _mock_installer()
         mock_test_conn.return_value = _failed_connection_result("s", "timed out")
 
@@ -332,7 +333,7 @@ class TestConfigureValidationFails:
             server_name="s",
             package_identifier="p",
             ctx=ctx,
-            client="claude_code",
+            clients="claude_code",
         )
 
         assert result["success"] is True
@@ -341,16 +342,16 @@ class TestConfigureValidationFails:
     @patch("mcp_tap.tools.configure.test_server_connection")
     @patch("mcp_tap.tools.configure.write_server_config")
     @patch("mcp_tap.tools.configure.resolve_installer")
-    @patch("mcp_tap.tools.configure._resolve_client_location")
+    @patch("mcp_tap.tools.configure.resolve_config_locations")
     async def test_validation_failure_config_still_written(
         self,
-        mock_location: MagicMock,
+        mock_locations: MagicMock,
         mock_resolve_installer: AsyncMock,
         mock_write: MagicMock,
         mock_test_conn: AsyncMock,
     ):
         """Should still write config even when validation fails."""
-        mock_location.return_value = _fake_location()
+        mock_locations.return_value = [_fake_location()]
         mock_resolve_installer.return_value = _mock_installer()
         mock_test_conn.return_value = _failed_connection_result()
 
@@ -359,7 +360,7 @@ class TestConfigureValidationFails:
             server_name="s",
             package_identifier="p",
             ctx=ctx,
-            client="claude_code",
+            clients="claude_code",
         )
 
         mock_write.assert_called_once()
@@ -367,16 +368,16 @@ class TestConfigureValidationFails:
     @patch("mcp_tap.tools.configure.test_server_connection")
     @patch("mcp_tap.tools.configure.write_server_config")
     @patch("mcp_tap.tools.configure.resolve_installer")
-    @patch("mcp_tap.tools.configure._resolve_client_location")
+    @patch("mcp_tap.tools.configure.resolve_config_locations")
     async def test_validation_failure_no_tools_discovered(
         self,
-        mock_location: MagicMock,
+        mock_locations: MagicMock,
         mock_resolve_installer: AsyncMock,
         mock_write: MagicMock,
         mock_test_conn: AsyncMock,
     ):
         """Should return empty tools_discovered when validation fails."""
-        mock_location.return_value = _fake_location()
+        mock_locations.return_value = [_fake_location()]
         mock_resolve_installer.return_value = _mock_installer()
         mock_test_conn.return_value = _failed_connection_result()
 
@@ -385,7 +386,7 @@ class TestConfigureValidationFails:
             server_name="s",
             package_identifier="p",
             ctx=ctx,
-            client="claude_code",
+            clients="claude_code",
         )
 
         assert result["tools_discovered"] == []
@@ -393,16 +394,16 @@ class TestConfigureValidationFails:
     @patch("mcp_tap.tools.configure.test_server_connection")
     @patch("mcp_tap.tools.configure.write_server_config")
     @patch("mcp_tap.tools.configure.resolve_installer")
-    @patch("mcp_tap.tools.configure._resolve_client_location")
+    @patch("mcp_tap.tools.configure.resolve_config_locations")
     async def test_validation_failure_message_mentions_warning(
         self,
-        mock_location: MagicMock,
+        mock_locations: MagicMock,
         mock_resolve_installer: AsyncMock,
         mock_write: MagicMock,
         mock_test_conn: AsyncMock,
     ):
         """Should include validation warning in the message."""
-        mock_location.return_value = _fake_location()
+        mock_locations.return_value = [_fake_location()]
         mock_resolve_installer.return_value = _mock_installer()
         mock_test_conn.return_value = _failed_connection_result(error="Connection refused")
 
@@ -411,138 +412,11 @@ class TestConfigureValidationFails:
             server_name="s",
             package_identifier="p",
             ctx=ctx,
-            client="claude_code",
+            clients="claude_code",
         )
 
         assert "Validation warning" in result["message"]
         assert "Connection refused" in result["message"]
-
-
-# ═══════════════════════════════════════════════════════════════
-# Result Field Tests
-# ═══════════════════════════════════════════════════════════════
-
-
-class TestConfigureResultFields:
-    """Tests that ConfigureResult fields are properly populated."""
-
-    @patch("mcp_tap.tools.configure.test_server_connection")
-    @patch("mcp_tap.tools.configure.write_server_config")
-    @patch("mcp_tap.tools.configure.resolve_installer")
-    @patch("mcp_tap.tools.configure._resolve_client_location")
-    async def test_install_status_field(
-        self,
-        mock_location: MagicMock,
-        mock_resolve_installer: AsyncMock,
-        mock_write: MagicMock,
-        mock_test_conn: AsyncMock,
-    ):
-        """Should set install_status to 'installed' on success."""
-        mock_location.return_value = _fake_location()
-        mock_resolve_installer.return_value = _mock_installer()
-        mock_test_conn.return_value = _ok_connection_result()
-
-        ctx = _make_ctx()
-        result = await configure_server(
-            server_name="s",
-            package_identifier="p",
-            ctx=ctx,
-            client="claude_code",
-        )
-
-        assert result["install_status"] == "installed"
-
-    @patch("mcp_tap.tools.configure.test_server_connection")
-    @patch("mcp_tap.tools.configure.write_server_config")
-    @patch("mcp_tap.tools.configure.resolve_installer")
-    @patch("mcp_tap.tools.configure._resolve_client_location")
-    async def test_tools_discovered_field(
-        self,
-        mock_location: MagicMock,
-        mock_resolve_installer: AsyncMock,
-        mock_write: MagicMock,
-        mock_test_conn: AsyncMock,
-    ):
-        """Should populate tools_discovered from validation result."""
-        mock_location.return_value = _fake_location()
-        mock_resolve_installer.return_value = _mock_installer()
-        mock_test_conn.return_value = _ok_connection_result(
-            tools=["read_query", "write_query"],
-        )
-
-        ctx = _make_ctx()
-        result = await configure_server(
-            server_name="s",
-            package_identifier="p",
-            ctx=ctx,
-            client="claude_code",
-        )
-
-        assert result["tools_discovered"] == ["read_query", "write_query"]
-
-    @patch("mcp_tap.tools.configure.test_server_connection")
-    @patch("mcp_tap.tools.configure.write_server_config")
-    @patch("mcp_tap.tools.configure.resolve_installer")
-    @patch("mcp_tap.tools.configure._resolve_client_location")
-    async def test_validation_passed_true(
-        self,
-        mock_location: MagicMock,
-        mock_resolve_installer: AsyncMock,
-        mock_write: MagicMock,
-        mock_test_conn: AsyncMock,
-    ):
-        """Should set validation_passed=True when connection test succeeds."""
-        mock_location.return_value = _fake_location()
-        mock_resolve_installer.return_value = _mock_installer()
-        mock_test_conn.return_value = _ok_connection_result()
-
-        ctx = _make_ctx()
-        result = await configure_server(
-            server_name="s",
-            package_identifier="p",
-            ctx=ctx,
-            client="claude_code",
-        )
-
-        assert result["validation_passed"] is True
-
-    @patch("mcp_tap.tools.configure.test_server_connection")
-    @patch("mcp_tap.tools.configure.write_server_config")
-    @patch("mcp_tap.tools.configure.resolve_installer")
-    @patch("mcp_tap.tools.configure._resolve_client_location")
-    async def test_result_is_plain_dict(
-        self,
-        mock_location: MagicMock,
-        mock_resolve_installer: AsyncMock,
-        mock_write: MagicMock,
-        mock_test_conn: AsyncMock,
-    ):
-        """Should return a plain dict (serialized via dataclasses.asdict)."""
-        mock_location.return_value = _fake_location()
-        mock_resolve_installer.return_value = _mock_installer()
-        mock_test_conn.return_value = _ok_connection_result()
-
-        ctx = _make_ctx()
-        result = await configure_server(
-            server_name="s",
-            package_identifier="p",
-            ctx=ctx,
-            client="claude_code",
-        )
-
-        assert isinstance(result, dict)
-        # Verify all expected keys are present
-        expected_keys = {
-            "success",
-            "server_name",
-            "config_file",
-            "message",
-            "config_written",
-            "install_status",
-            "tools_discovered",
-            "validation_passed",
-        }
-        assert expected_keys == set(result.keys())
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -553,8 +427,8 @@ class TestConfigureResultFields:
 class TestConfigureNoClient:
     """Tests for when no MCP client is detected."""
 
-    @patch("mcp_tap.tools.configure._resolve_client_location", return_value=None)
-    async def test_no_client_returns_error(self, _mock_location: MagicMock):
+    @patch("mcp_tap.tools.configure.resolve_config_locations", return_value=[])
+    async def test_no_client_returns_error(self, _mock_locations: MagicMock):
         """Should return success=False with helpful message."""
         ctx = _make_ctx()
         result = await configure_server(
@@ -569,6 +443,149 @@ class TestConfigureNoClient:
 
 
 # ═══════════════════════════════════════════════════════════════
+# Multi-Client Tests
+# ═══════════════════════════════════════════════════════════════
+
+
+class TestConfigureMultiClient:
+    """Tests for configuring multiple clients at once."""
+
+    @patch("mcp_tap.tools.configure.test_server_connection")
+    @patch("mcp_tap.tools.configure.write_server_config")
+    @patch("mcp_tap.tools.configure.resolve_installer")
+    @patch("mcp_tap.tools.configure.resolve_config_locations")
+    async def test_multi_client_success(
+        self,
+        mock_locations: MagicMock,
+        mock_resolve_installer: AsyncMock,
+        mock_write: MagicMock,
+        mock_test_conn: AsyncMock,
+    ):
+        """Should write config to all clients and return per-client results."""
+        mock_locations.return_value = [
+            _fake_location(MCPClient.CLAUDE_DESKTOP, "/a"),
+            _fake_location(MCPClient.CURSOR, "/b"),
+        ]
+        mock_resolve_installer.return_value = _mock_installer()
+        mock_test_conn.return_value = _ok_connection_result()
+
+        ctx = _make_ctx()
+        result = await configure_server(
+            server_name="s",
+            package_identifier="p",
+            ctx=ctx,
+            clients="claude_desktop,cursor",
+        )
+
+        assert result["success"] is True
+        assert "per_client_results" in result
+        assert len(result["per_client_results"]) == 2
+        assert mock_write.call_count == 2
+
+    @patch("mcp_tap.tools.configure.test_server_connection")
+    @patch("mcp_tap.tools.configure.write_server_config")
+    @patch("mcp_tap.tools.configure.resolve_installer")
+    @patch("mcp_tap.tools.configure.resolve_config_locations")
+    async def test_multi_client_partial_failure(
+        self,
+        mock_locations: MagicMock,
+        mock_resolve_installer: AsyncMock,
+        mock_write: MagicMock,
+        mock_test_conn: AsyncMock,
+    ):
+        """Should succeed overall even if one client config write fails."""
+        mock_locations.return_value = [
+            _fake_location(MCPClient.CLAUDE_DESKTOP, "/a"),
+            _fake_location(MCPClient.CURSOR, "/b"),
+        ]
+        mock_resolve_installer.return_value = _mock_installer()
+        mock_test_conn.return_value = _ok_connection_result()
+        # Second write fails
+        mock_write.side_effect = [None, ConfigWriteError("Permission denied")]
+
+        ctx = _make_ctx()
+        result = await configure_server(
+            server_name="s",
+            package_identifier="p",
+            ctx=ctx,
+            clients="claude_desktop,cursor",
+        )
+
+        assert result["success"] is True
+        per_client = result["per_client_results"]
+        assert per_client[0]["success"] is True
+        assert per_client[1]["success"] is False
+
+    @patch("mcp_tap.tools.configure.test_server_connection")
+    @patch("mcp_tap.tools.configure.write_server_config")
+    @patch("mcp_tap.tools.configure.resolve_installer")
+    @patch("mcp_tap.tools.configure.resolve_config_locations")
+    async def test_multi_client_message_lists_clients(
+        self,
+        mock_locations: MagicMock,
+        mock_resolve_installer: AsyncMock,
+        mock_write: MagicMock,
+        mock_test_conn: AsyncMock,
+    ):
+        """Should mention which clients were configured in the message."""
+        mock_locations.return_value = [
+            _fake_location(MCPClient.CLAUDE_DESKTOP, "/a"),
+            _fake_location(MCPClient.CURSOR, "/b"),
+        ]
+        mock_resolve_installer.return_value = _mock_installer()
+        mock_test_conn.return_value = _ok_connection_result()
+
+        ctx = _make_ctx()
+        result = await configure_server(
+            server_name="s",
+            package_identifier="p",
+            ctx=ctx,
+            clients="claude_desktop,cursor",
+        )
+
+        assert "2/2" in result["message"]
+
+
+# ═══════════════════════════════════════════════════════════════
+# Project-Scoped Config Tests
+# ═══════════════════════════════════════════════════════════════
+
+
+class TestConfigureProjectScope:
+    """Tests for project-scoped configuration."""
+
+    @patch("mcp_tap.tools.configure.test_server_connection")
+    @patch("mcp_tap.tools.configure.write_server_config")
+    @patch("mcp_tap.tools.configure.resolve_installer")
+    @patch("mcp_tap.tools.configure.resolve_config_locations")
+    async def test_project_scope_passes_params(
+        self,
+        mock_locations: MagicMock,
+        mock_resolve_installer: AsyncMock,
+        mock_write: MagicMock,
+        mock_test_conn: AsyncMock,
+    ):
+        """Should pass scope and project_path to resolve_config_locations."""
+        mock_locations.return_value = [
+            _fake_location(MCPClient.CURSOR, "/project/.cursor/mcp.json", scope="project")
+        ]
+        mock_resolve_installer.return_value = _mock_installer()
+        mock_test_conn.return_value = _ok_connection_result()
+
+        ctx = _make_ctx()
+        await configure_server(
+            server_name="s",
+            package_identifier="p",
+            ctx=ctx,
+            clients="cursor",
+            scope="project",
+            project_path="/project",
+        )
+
+        mock_locations.assert_called_once_with("cursor", scope="project", project_path="/project")
+
+
+# ═══════════════════════════════════════════════════════════════
 # Env Var Parsing Tests
 # ═══════════════════════════════════════════════════════════════
 
@@ -579,16 +596,16 @@ class TestConfigureEnvVarParsing:
     @patch("mcp_tap.tools.configure.test_server_connection")
     @patch("mcp_tap.tools.configure.write_server_config")
     @patch("mcp_tap.tools.configure.resolve_installer")
-    @patch("mcp_tap.tools.configure._resolve_client_location")
+    @patch("mcp_tap.tools.configure.resolve_config_locations")
     async def test_env_vars_parsed_into_config(
         self,
-        mock_location: MagicMock,
+        mock_locations: MagicMock,
         mock_resolve_installer: AsyncMock,
         mock_write: MagicMock,
         mock_test_conn: AsyncMock,
     ):
         """Should parse comma-separated KEY=VALUE pairs into env dict."""
-        mock_location.return_value = _fake_location()
+        mock_locations.return_value = [_fake_location()]
         mock_resolve_installer.return_value = _mock_installer()
         mock_test_conn.return_value = _ok_connection_result()
 
@@ -597,7 +614,7 @@ class TestConfigureEnvVarParsing:
             server_name="s",
             package_identifier="p",
             ctx=ctx,
-            client="claude_code",
+            clients="claude_code",
             env_vars="DB_URL=postgresql://localhost/db,API_KEY=sk-123",
         )
 
@@ -608,16 +625,16 @@ class TestConfigureEnvVarParsing:
     @patch("mcp_tap.tools.configure.test_server_connection")
     @patch("mcp_tap.tools.configure.write_server_config")
     @patch("mcp_tap.tools.configure.resolve_installer")
-    @patch("mcp_tap.tools.configure._resolve_client_location")
+    @patch("mcp_tap.tools.configure.resolve_config_locations")
     async def test_empty_env_vars_no_env_in_config(
         self,
-        mock_location: MagicMock,
+        mock_locations: MagicMock,
         mock_resolve_installer: AsyncMock,
         mock_write: MagicMock,
         mock_test_conn: AsyncMock,
     ):
         """Should not include env in config_written when env_vars is empty."""
-        mock_location.return_value = _fake_location()
+        mock_locations.return_value = [_fake_location()]
         mock_resolve_installer.return_value = _mock_installer()
         mock_test_conn.return_value = _ok_connection_result()
 
@@ -626,7 +643,7 @@ class TestConfigureEnvVarParsing:
             server_name="s",
             package_identifier="p",
             ctx=ctx,
-            client="claude_code",
+            clients="claude_code",
             env_vars="",
         )
 
@@ -643,10 +660,10 @@ class TestConfigureUnexpectedErrors:
     """Tests for unexpected exception handling."""
 
     @patch(
-        "mcp_tap.tools.configure._resolve_client_location",
+        "mcp_tap.tools.configure.resolve_config_locations",
         side_effect=RuntimeError("unexpected"),
     )
-    async def test_unexpected_error_returns_dict(self, _mock_location: MagicMock):
+    async def test_unexpected_error_returns_dict(self, _mock_locations: MagicMock):
         """Should return error dict for unexpected exceptions."""
         ctx = _make_ctx()
         result = await configure_server(
@@ -662,16 +679,16 @@ class TestConfigureUnexpectedErrors:
     @patch("mcp_tap.tools.configure.test_server_connection")
     @patch("mcp_tap.tools.configure.write_server_config")
     @patch("mcp_tap.tools.configure.resolve_installer")
-    @patch("mcp_tap.tools.configure._resolve_client_location")
+    @patch("mcp_tap.tools.configure.resolve_config_locations")
     async def test_config_write_error_returns_mcptap_error(
         self,
-        mock_location: MagicMock,
+        mock_locations: MagicMock,
         mock_resolve_installer: AsyncMock,
         mock_write: MagicMock,
         mock_test_conn: AsyncMock,
     ):
         """Should handle ConfigWriteError (server already exists)."""
-        mock_location.return_value = _fake_location()
+        mock_locations.return_value = [_fake_location()]
         mock_resolve_installer.return_value = _mock_installer()
         mock_write.side_effect = ConfigWriteError("Server 'x' already exists")
 
@@ -680,7 +697,7 @@ class TestConfigureUnexpectedErrors:
             server_name="x",
             package_identifier="p",
             ctx=ctx,
-            client="claude_code",
+            clients="claude_code",
         )
 
         assert result["success"] is False
@@ -698,16 +715,16 @@ class TestConfigurePypiRegistry:
     @patch("mcp_tap.tools.configure.test_server_connection")
     @patch("mcp_tap.tools.configure.write_server_config")
     @patch("mcp_tap.tools.configure.resolve_installer")
-    @patch("mcp_tap.tools.configure._resolve_client_location")
+    @patch("mcp_tap.tools.configure.resolve_config_locations")
     async def test_pypi_registry_resolved(
         self,
-        mock_location: MagicMock,
+        mock_locations: MagicMock,
         mock_resolve_installer: AsyncMock,
         mock_write: MagicMock,
         mock_test_conn: AsyncMock,
     ):
         """Should pass pypi RegistryType to resolve_installer."""
-        mock_location.return_value = _fake_location()
+        mock_locations.return_value = [_fake_location()]
         installer = _mock_installer(command="uvx", args=["some-mcp-server"])
         mock_resolve_installer.return_value = installer
         mock_test_conn.return_value = _ok_connection_result()
@@ -717,12 +734,11 @@ class TestConfigurePypiRegistry:
             server_name="pypi-server",
             package_identifier="some-mcp-server",
             ctx=ctx,
-            client="claude_code",
+            clients="claude_code",
             registry_type="pypi",
         )
 
         mock_resolve_installer.assert_awaited_once()
-        # Verify the RegistryType.PYPI was passed
         call_args = mock_resolve_installer.call_args[0]
         from mcp_tap.models import RegistryType
 
@@ -741,65 +757,25 @@ class TestParseEnvVars:
     """Tests for the _parse_env_vars helper function."""
 
     def test_empty_string(self):
-        """Should return empty dict for empty string."""
         assert _parse_env_vars("") == {}
 
     def test_single_pair(self):
-        """Should parse a single KEY=VALUE pair."""
         assert _parse_env_vars("DB_URL=postgres://localhost") == {
             "DB_URL": "postgres://localhost",
         }
 
     def test_multiple_pairs(self):
-        """Should parse comma-separated pairs."""
         result = _parse_env_vars("KEY1=val1,KEY2=val2,KEY3=val3")
         assert result == {"KEY1": "val1", "KEY2": "val2", "KEY3": "val3"}
 
     def test_strips_whitespace(self):
-        """Should strip whitespace around keys and values."""
         result = _parse_env_vars("  KEY = value , OTHER = stuff  ")
         assert result == {"KEY": "value", "OTHER": "stuff"}
 
     def test_value_with_equals_sign(self):
-        """Should handle values containing '=' (split on first only)."""
         result = _parse_env_vars("URL=postgres://host?opt=true")
         assert result == {"URL": "postgres://host?opt=true"}
 
     def test_pair_without_equals_ignored(self):
-        """Should ignore entries without '=' sign."""
         result = _parse_env_vars("KEY=val,BROKEN_ENTRY,OTHER=x")
         assert result == {"KEY": "val", "OTHER": "x"}
-
-
-# ═══════════════════════════════════════════════════════════════
-# _resolve_client_location Unit Tests
-# ═══════════════════════════════════════════════════════════════
-
-
-class TestResolveClientLocation:
-    """Tests for the _resolve_client_location helper function."""
-
-    @patch("mcp_tap.tools.configure.resolve_config_path")
-    def test_explicit_client(self, mock_resolve: MagicMock):
-        """Should call resolve_config_path for an explicit client."""
-        mock_resolve.return_value = _fake_location(client=MCPClient.CURSOR)
-
-        result = _resolve_client_location("cursor")
-        assert result is not None
-        mock_resolve.assert_called_once_with(MCPClient.CURSOR)
-
-    @patch("mcp_tap.tools.configure.detect_clients", return_value=[])
-    def test_no_clients_returns_none(self, _mock_detect: MagicMock):
-        """Should return None when no clients are detected."""
-        result = _resolve_client_location("")
-        assert result is None
-
-    @patch("mcp_tap.tools.configure.detect_clients")
-    def test_auto_detect_returns_first(self, mock_detect: MagicMock):
-        """Should return the first detected client."""
-        loc1 = _fake_location(client=MCPClient.CLAUDE_DESKTOP, path="/a")
-        loc2 = _fake_location(client=MCPClient.CURSOR, path="/b")
-        mock_detect.return_value = [loc1, loc2]
-
-        result = _resolve_client_location("")
-        assert result == loc1
