@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 
 from mcp_tap.models import (
     MCPClient,
@@ -123,35 +124,75 @@ TECHNOLOGY_SERVER_MAP: dict[str, list[ServerRecommendation]] = {
 
 
 # ─── Native capabilities per client ──────────────────────────
-# Packages that are redundant because the client already provides
-# equivalent functionality natively.
+# Keywords that identify redundant MCP servers for each client.
+# If a server's name or package_identifier contains any of these keywords,
+# it is filtered out with the given reason.
+# This approach catches ALL variants of a capability (e.g. multiple
+# GitHub MCP servers from different publishers).
 
-CLIENT_NATIVE_CAPABILITIES: dict[MCPClient, dict[str, str]] = {
-    MCPClient.CLAUDE_CODE: {
-        # Claude Code has Read/Write/Edit/Glob/Grep tools natively
-        "@modelcontextprotocol/server-filesystem": (
-            "Claude Code has native file Read/Write/Edit/Glob/Grep tools"
+
+@dataclass(frozen=True, slots=True)
+class _NativeCapability:
+    keywords: list[str]
+    reason: str
+
+
+CLIENT_NATIVE_CAPABILITIES: dict[MCPClient, list[_NativeCapability]] = {
+    MCPClient.CLAUDE_CODE: [
+        _NativeCapability(
+            keywords=["filesystem", "file-system"],
+            reason="Claude Code has native Read/Write/Edit/Glob/Grep tools",
         ),
-        # Claude Code has Bash with gh CLI for full GitHub/Git access
-        "@modelcontextprotocol/server-github": ("Claude Code has native Bash access to the gh CLI"),
-        # Claude Code has Bash with git CLI
-        "@modelcontextprotocol/server-git": ("Claude Code has native Bash access to git"),
-    },
-    MCPClient.CURSOR: {
-        # Cursor has built-in file editing
-        "@modelcontextprotocol/server-filesystem": (
-            "Cursor has built-in file editing capabilities"
+        _NativeCapability(
+            keywords=["github"],
+            reason="Claude Code has native Bash access to the gh CLI for full GitHub API access",
         ),
-    },
-    MCPClient.WINDSURF: {
-        # Windsurf has built-in file editing
-        "@modelcontextprotocol/server-filesystem": (
-            "Windsurf has built-in file editing capabilities"
+        _NativeCapability(
+            keywords=["gitlab"],
+            reason="Claude Code has native Bash access to the glab CLI for GitLab",
         ),
-    },
+        _NativeCapability(
+            keywords=["-git", "server-git", "mcp-git"],
+            reason="Claude Code has native Bash access to git",
+        ),
+        _NativeCapability(
+            keywords=["fetch", "web-fetch"],
+            reason="Claude Code has native WebFetch and WebSearch tools",
+        ),
+    ],
+    MCPClient.CURSOR: [
+        _NativeCapability(
+            keywords=["filesystem", "file-system"],
+            reason="Cursor has built-in file editing capabilities",
+        ),
+    ],
+    MCPClient.WINDSURF: [
+        _NativeCapability(
+            keywords=["filesystem", "file-system"],
+            reason="Windsurf has built-in file editing capabilities",
+        ),
+    ],
     # Claude Desktop has no native tools — needs MCP for everything
-    MCPClient.CLAUDE_DESKTOP: {},
+    MCPClient.CLAUDE_DESKTOP: [],
 }
+
+
+def _is_redundant(
+    server_name: str,
+    package_identifier: str,
+    capabilities: list[_NativeCapability],
+) -> str | None:
+    """Check if a server is redundant with native client capabilities.
+
+    Returns the reason string if redundant, None if not.
+    """
+    name_lower = server_name.lower()
+    pkg_lower = package_identifier.lower()
+    for cap in capabilities:
+        for keyword in cap.keywords:
+            if keyword in name_lower or keyword in pkg_lower:
+                return cap.reason
+    return None
 
 
 def recommend_servers(
@@ -173,7 +214,7 @@ def recommend_servers(
     Returns:
         Deduplicated list of ServerRecommendation sorted by priority (high first).
     """
-    native = CLIENT_NATIVE_CAPABILITIES.get(client, {}) if client else {}
+    capabilities = CLIENT_NATIVE_CAPABILITIES.get(client, []) if client else []
     seen_packages: set[str] = set()
     results: list[ServerRecommendation] = []
 
@@ -186,17 +227,14 @@ def recommend_servers(
             if rec.package_identifier in seen_packages:
                 continue
             seen_packages.add(rec.package_identifier)
-            if rec.package_identifier in native:
-                logger.debug(
-                    "Skipping %s: %s",
-                    rec.server_name,
-                    native[rec.package_identifier],
-                )
+            reason = _is_redundant(rec.server_name, rec.package_identifier, capabilities)
+            if reason:
+                logger.debug("Skipping %s: %s", rec.server_name, reason)
                 continue
             results.append(rec)
 
     # Always recommend filesystem server for any project — unless native
-    _add_filesystem_recommendation(results, seen_packages, native)
+    _add_filesystem_recommendation(results, seen_packages, capabilities)
 
     # Sort by priority: high → medium → low
     results.sort(key=lambda r: _PRIORITY_ORDER.get(r.priority, 99))
@@ -207,12 +245,12 @@ def recommend_servers(
 def _add_filesystem_recommendation(
     results: list[ServerRecommendation],
     seen_packages: set[str],
-    native: dict[str, str],
+    capabilities: list[_NativeCapability],
 ) -> None:
     """Ensure the filesystem server is recommended (unless client has native access)."""
     fs_recs = TECHNOLOGY_SERVER_MAP.get("filesystem", [])
     for rec in fs_recs:
         if rec.package_identifier not in seen_packages:
             seen_packages.add(rec.package_identifier)
-            if rec.package_identifier not in native:
+            if not _is_redundant(rec.server_name, rec.package_identifier, capabilities):
                 results.append(rec)

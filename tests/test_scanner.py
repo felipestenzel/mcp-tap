@@ -873,6 +873,59 @@ class TestRecommendServers:
         recs = recommend_servers(profile, client=MCPClient.CLAUDE_CODE)
         assert len(recs) == 0  # filesystem filtered, nothing else
 
+    def test_claude_code_filters_gitlab(self):
+        """Claude Code should NOT get gitlab-mcp (has native glab CLI)."""
+        profile = self._make_profile([("gitlab", TechnologyCategory.SERVICE)])
+        recs = recommend_servers(profile, client=MCPClient.CLAUDE_CODE)
+        rec_names = {r.server_name for r in recs}
+        assert "gitlab-mcp" not in rec_names
+
+
+class TestIsRedundant:
+    """Tests for keyword-based capability matching via _is_redundant."""
+
+    def test_matches_github_in_any_package(self) -> None:
+        from mcp_tap.scanner.recommendations import CLIENT_NATIVE_CAPABILITIES, _is_redundant
+
+        caps = CLIENT_NATIVE_CAPABILITIES[MCPClient.CLAUDE_CODE]
+        # Official Docker-based GitHub server
+        assert _is_redundant("github-mcp", "ghcr.io/github/github-mcp-server", caps)
+        # NPM-based GitHub server
+        assert _is_redundant("github-mcp", "@modelcontextprotocol/server-github", caps)
+
+    def test_matches_git_server_variants(self) -> None:
+        from mcp_tap.scanner.recommendations import CLIENT_NATIVE_CAPABILITIES, _is_redundant
+
+        caps = CLIENT_NATIVE_CAPABILITIES[MCPClient.CLAUDE_CODE]
+        assert _is_redundant("git-mcp", "mcp-server-git", caps)
+        assert _is_redundant("git", "@modelcontextprotocol/server-git", caps)
+
+    def test_matches_filesystem_variants(self) -> None:
+        from mcp_tap.scanner.recommendations import CLIENT_NATIVE_CAPABILITIES, _is_redundant
+
+        caps = CLIENT_NATIVE_CAPABILITIES[MCPClient.CLAUDE_CODE]
+        assert _is_redundant("filesystem-mcp", "@modelcontextprotocol/server-filesystem", caps)
+        assert _is_redundant("fs-server", "some-filesystem-server", caps)
+
+    def test_matches_fetch_variants(self) -> None:
+        from mcp_tap.scanner.recommendations import CLIENT_NATIVE_CAPABILITIES, _is_redundant
+
+        caps = CLIENT_NATIVE_CAPABILITIES[MCPClient.CLAUDE_CODE]
+        assert _is_redundant("fetch", "mcp-server-fetch", caps)
+
+    def test_does_not_match_postgres(self) -> None:
+        from mcp_tap.scanner.recommendations import CLIENT_NATIVE_CAPABILITIES, _is_redundant
+
+        caps = CLIENT_NATIVE_CAPABILITIES[MCPClient.CLAUDE_CODE]
+        assert not _is_redundant("postgres-mcp", "@modelcontextprotocol/server-postgres", caps)
+
+    def test_desktop_matches_nothing(self) -> None:
+        from mcp_tap.scanner.recommendations import CLIENT_NATIVE_CAPABILITIES, _is_redundant
+
+        caps = CLIENT_NATIVE_CAPABILITIES[MCPClient.CLAUDE_DESKTOP]
+        assert not _is_redundant("github-mcp", "ghcr.io/github/github-mcp-server", caps)
+        assert not _is_redundant("filesystem-mcp", "server-filesystem", caps)
+
 
 # ═══════════════════════════════════════════════════════════════
 # Domain Model Tests
