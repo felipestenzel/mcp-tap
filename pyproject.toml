@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mcp-tap"
-version = "0.2.0"
+version = "0.2.1"
 description = "The last MCP server you install by hand. Discover, install, and configure MCP servers from inside your AI assistant."
 readme = "README.md"
 license = "MIT"
