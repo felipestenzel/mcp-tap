@@ -134,6 +134,9 @@ class ConfigureResult:
     config_file: str
     message: str
     config_written: dict[str, object] = field(default_factory=dict)
+    install_status: str = ""  # installed / already_available / skipped / failed
+    tools_discovered: list[str] = field(default_factory=list)
+    validation_passed: bool = False
 
 
 @dataclass(frozen=True, slots=True)
