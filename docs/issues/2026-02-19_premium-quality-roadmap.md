@@ -210,7 +210,7 @@ Sem corrigir esses 4 problemas, o produto não é confiável para uso real.
    - ✅ Design spec completa (`docs/specs/mcp-tap-lockfile-v1.md`)
    - ✅ Phase 1 Core: models, reader, writer, hasher, hooks configure/remove (commit `887814e`)
    - ✅ Phase 2: Drift detection (`differ.py`), verify tool, health check integration
-   - ⬜ Phase 3: Restore tool, version resolution, integrity hashes
+   - ✅ Phase 3: Restore tool with dry_run, multi-client, env vars reporting
 3. ⬜ I3 — Stacks conversacionais (M, network effects)
 4. ⬜ I2 — Security gate (M, differentiator)
 
