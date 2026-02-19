@@ -16,6 +16,7 @@ from mcp_tap.tools.health import check_health
 from mcp_tap.tools.inspect import inspect_server
 from mcp_tap.tools.list import list_installed
 from mcp_tap.tools.remove import remove_server
+from mcp_tap.tools.restore import restore
 from mcp_tap.tools.scan import scan_project
 from mcp_tap.tools.search import search_servers
 from mcp_tap.tools.test import test_connection
@@ -118,3 +119,4 @@ mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))(verify)
 # ─── Destructive tools ────────────────────────────────────────
 mcp.tool(annotations=ToolAnnotations(destructiveHint=True))(configure_server)
 mcp.tool(annotations=ToolAnnotations(destructiveHint=True))(remove_server)
+mcp.tool(annotations=ToolAnnotations(destructiveHint=True))(restore)
