@@ -425,3 +425,41 @@ class VerifyResult:
     total_installed: int
     drift: list[DriftEntry] = field(default_factory=list)
     clean: bool = True
+
+
+# ─── Security Gate Models ────────────────────────────────────
+
+
+class SecurityRisk(StrEnum):
+    PASS = "pass"
+    WARN = "warn"
+    BLOCK = "block"
+
+
+@dataclass(frozen=True, slots=True)
+class SecuritySignal:
+    """A single security finding about a package."""
+
+    category: str  # e.g. "repo_age", "stars", "archived", "license", "command"
+    risk: SecurityRisk
+    message: str  # Human-readable explanation
+
+
+@dataclass(frozen=True, slots=True)
+class SecurityReport:
+    """Aggregated security assessment for a package."""
+
+    overall_risk: SecurityRisk
+    signals: list[SecuritySignal] = field(default_factory=list)
+
+    @property
+    def passed(self) -> bool:
+        return self.overall_risk != SecurityRisk.BLOCK
+
+    @property
+    def warnings(self) -> list[SecuritySignal]:
+        return [s for s in self.signals if s.risk == SecurityRisk.WARN]
+
+    @property
+    def blockers(self) -> list[SecuritySignal]:
+        return [s for s in self.signals if s.risk == SecurityRisk.BLOCK]
