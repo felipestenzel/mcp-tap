@@ -201,6 +201,20 @@ class TechnologyCategory(StrEnum):
     PLATFORM = "platform"
 
 
+class RecommendationSource(StrEnum):
+    CURATED = "curated"
+    REGISTRY = "registry"
+
+
+class HintType(StrEnum):
+    UNMAPPED_TECHNOLOGY = "unmapped_technology"
+    WORKFLOW_INFERENCE = "workflow_inference"
+    STACK_ARCHETYPE = "stack_archetype"
+    ENV_VAR_HINT = "env_var_hint"
+    MISSING_COMPLEMENT = "missing_complement"
+    DEPLOYMENT_TARGET = "deployment_target"
+
+
 @dataclass(frozen=True, slots=True)
 class DetectedTechnology:
     """A technology detected by scanning project files."""
@@ -220,6 +234,29 @@ class ServerRecommendation:
     registry_type: RegistryType
     reason: str
     priority: str  # "high", "medium", "low"
+    source: RecommendationSource = RecommendationSource.CURATED
+    confidence: float = 1.0
+
+
+@dataclass(frozen=True, slots=True)
+class DiscoveryHint:
+    """A suggestion for additional MCP server searches based on project signals."""
+
+    hint_type: HintType
+    trigger: str
+    suggestion: str
+    search_queries: list[str] = field(default_factory=list)
+    confidence: float = 0.7
+
+
+@dataclass(frozen=True, slots=True)
+class StackArchetype:
+    """A recognized project pattern (e.g. SaaS, Data Pipeline) with extra suggestions."""
+
+    name: str
+    label: str
+    matched_technologies: list[str] = field(default_factory=list)
+    extra_search_queries: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)
@@ -230,6 +267,8 @@ class ProjectProfile:
     technologies: list[DetectedTechnology] = field(default_factory=list)
     env_var_names: list[str] = field(default_factory=list)
     recommendations: list[ServerRecommendation] = field(default_factory=list)
+    discovery_hints: list[DiscoveryHint] = field(default_factory=list)
+    archetypes: list[StackArchetype] = field(default_factory=list)
 
 
 # ─── Healing Models ──────────────────────────────────────────

@@ -727,22 +727,22 @@ class TestRecommendServers:
                 )
         return ProjectProfile(path="/tmp/test", technologies=techs)
 
-    def test_recommend_postgres(self):
+    async def test_recommend_postgres(self):
         """Should recommend postgres-mcp when PostgreSQL is detected."""
         profile = self._make_profile([("postgresql", TechnologyCategory.DATABASE)])
-        recs = recommend_servers(profile)
+        recs = await recommend_servers(profile)
         rec_names = {r.server_name for r in recs}
         assert "postgres-mcp" in rec_names
 
-    def test_recommend_postgres_package(self):
+    async def test_recommend_postgres_package(self):
         """Should recommend the correct npm package for postgres."""
         profile = self._make_profile([("postgresql", TechnologyCategory.DATABASE)])
-        recs = recommend_servers(profile)
+        recs = await recommend_servers(profile)
         pg_rec = next(r for r in recs if r.server_name == "postgres-mcp")
         assert pg_rec.package_identifier == "@modelcontextprotocol/server-postgres"
         assert pg_rec.registry_type == RegistryType.NPM
 
-    def test_recommend_multiple(self):
+    async def test_recommend_multiple(self):
         """Should recommend multiple servers for multiple technologies."""
         profile = self._make_profile(
             [
@@ -750,12 +750,12 @@ class TestRecommendServers:
                 ("redis", TechnologyCategory.DATABASE),
             ]
         )
-        recs = recommend_servers(profile)
+        recs = await recommend_servers(profile)
         rec_names = {r.server_name for r in recs}
         assert "postgres-mcp" in rec_names
         assert "redis-mcp" in rec_names
 
-    def test_recommend_deduplication(self):
+    async def test_recommend_deduplication(self):
         """Same technology from different sources should produce one recommendation."""
         techs = [
             DetectedTechnology("postgresql", TechnologyCategory.DATABASE, "pyproject.toml"),
@@ -763,27 +763,27 @@ class TestRecommendServers:
             DetectedTechnology("postgresql", TechnologyCategory.DATABASE, ".env"),
         ]
         profile = ProjectProfile(path="/tmp/test", technologies=techs)
-        recs = recommend_servers(profile)
+        recs = await recommend_servers(profile)
         pg_recs = [r for r in recs if r.server_name == "postgres-mcp"]
         assert len(pg_recs) == 1
 
-    def test_recommend_empty_profile(self):
+    async def test_recommend_empty_profile(self):
         """Should return only filesystem recommendation for empty profile."""
         profile = self._make_profile()
-        recs = recommend_servers(profile)
+        recs = await recommend_servers(profile)
         # Only filesystem should be recommended
         non_fs = [r for r in recs if r.server_name != "filesystem-mcp"]
         assert non_fs == []
         assert len(recs) == 1
 
-    def test_filesystem_always_included(self):
+    async def test_filesystem_always_included(self):
         """Should always include filesystem-mcp regardless of technologies."""
         profile = self._make_profile([("postgresql", TechnologyCategory.DATABASE)])
-        recs = recommend_servers(profile)
+        recs = await recommend_servers(profile)
         rec_names = {r.server_name for r in recs}
         assert "filesystem-mcp" in rec_names
 
-    def test_recommendations_sorted_by_priority(self):
+    async def test_recommendations_sorted_by_priority(self):
         """Should sort recommendations: high > medium > low."""
         profile = self._make_profile(
             [
@@ -791,28 +791,28 @@ class TestRecommendServers:
                 ("redis", TechnologyCategory.DATABASE),
             ]
         )
-        recs = recommend_servers(profile)
+        recs = await recommend_servers(profile)
         priorities = [r.priority for r in recs]
         # High should come before medium, medium before low
         priority_order = {"high": 0, "medium": 1, "low": 2}
         priority_values = [priority_order[p] for p in priorities]
         assert priority_values == sorted(priority_values)
 
-    def test_unknown_technology_no_recommendation(self):
+    async def test_unknown_technology_no_recommendation(self):
         """Should not crash or produce recommendations for unknown technologies."""
         profile = self._make_profile([("obscure-framework", TechnologyCategory.FRAMEWORK)])
-        recs = recommend_servers(profile)
+        recs = await recommend_servers(profile)
         # Only filesystem should be present
         non_fs = [r for r in recs if r.server_name != "filesystem-mcp"]
         assert non_fs == []
 
-    def test_all_mapped_technologies_produce_recommendations(self):
+    async def test_all_mapped_technologies_produce_recommendations(self):
         """Every technology in TECHNOLOGY_SERVER_MAP should produce recommendations."""
         for tech_name, expected_recs in TECHNOLOGY_SERVER_MAP.items():
             if tech_name == "filesystem":
                 continue  # filesystem is always added
             profile = self._make_profile([(tech_name, TechnologyCategory.DATABASE)])
-            recs = recommend_servers(profile)
+            recs = await recommend_servers(profile)
             rec_packages = {r.package_identifier for r in recs}
             for expected in expected_recs:
                 assert expected.package_identifier in rec_packages, (
@@ -822,22 +822,22 @@ class TestRecommendServers:
 
     # ─── Client-aware filtering ───────────────────────────────
 
-    def test_claude_code_filters_filesystem(self):
+    async def test_claude_code_filters_filesystem(self):
         """Claude Code should NOT get filesystem-mcp (has native Read/Write/Edit)."""
         profile = self._make_profile([("postgresql", TechnologyCategory.DATABASE)])
-        recs = recommend_servers(profile, client=MCPClient.CLAUDE_CODE)
+        recs = await recommend_servers(profile, client=MCPClient.CLAUDE_CODE)
         rec_names = {r.server_name for r in recs}
         assert "filesystem-mcp" not in rec_names
         assert "postgres-mcp" in rec_names  # real recommendation kept
 
-    def test_claude_code_filters_github(self):
+    async def test_claude_code_filters_github(self):
         """Claude Code should NOT get github-mcp (has native gh CLI)."""
         profile = self._make_profile([("github", TechnologyCategory.SERVICE)])
-        recs = recommend_servers(profile, client=MCPClient.CLAUDE_CODE)
+        recs = await recommend_servers(profile, client=MCPClient.CLAUDE_CODE)
         rec_names = {r.server_name for r in recs}
         assert "github-mcp" not in rec_names
 
-    def test_claude_desktop_keeps_everything(self):
+    async def test_claude_desktop_keeps_everything(self):
         """Claude Desktop has no native tools — should get all recommendations."""
         profile = self._make_profile(
             [
@@ -845,38 +845,38 @@ class TestRecommendServers:
                 ("postgresql", TechnologyCategory.DATABASE),
             ]
         )
-        recs = recommend_servers(profile, client=MCPClient.CLAUDE_DESKTOP)
+        recs = await recommend_servers(profile, client=MCPClient.CLAUDE_DESKTOP)
         rec_names = {r.server_name for r in recs}
         assert "github-mcp" in rec_names
         assert "postgres-mcp" in rec_names
         assert "filesystem-mcp" in rec_names
 
-    def test_cursor_filters_filesystem_only(self):
+    async def test_cursor_filters_filesystem_only(self):
         """Cursor should filter filesystem but keep github."""
         profile = self._make_profile([("github", TechnologyCategory.SERVICE)])
-        recs = recommend_servers(profile, client=MCPClient.CURSOR)
+        recs = await recommend_servers(profile, client=MCPClient.CURSOR)
         rec_names = {r.server_name for r in recs}
         assert "github-mcp" in rec_names
         assert "filesystem-mcp" not in rec_names
 
-    def test_no_client_keeps_everything(self):
+    async def test_no_client_keeps_everything(self):
         """No client specified — should recommend everything (backward compat)."""
         profile = self._make_profile([("github", TechnologyCategory.SERVICE)])
-        recs = recommend_servers(profile)
+        recs = await recommend_servers(profile)
         rec_names = {r.server_name for r in recs}
         assert "github-mcp" in rec_names
         assert "filesystem-mcp" in rec_names
 
-    def test_claude_code_empty_profile_no_filesystem(self):
+    async def test_claude_code_empty_profile_no_filesystem(self):
         """Claude Code with empty profile should get NO recommendations."""
         profile = self._make_profile()
-        recs = recommend_servers(profile, client=MCPClient.CLAUDE_CODE)
+        recs = await recommend_servers(profile, client=MCPClient.CLAUDE_CODE)
         assert len(recs) == 0  # filesystem filtered, nothing else
 
-    def test_claude_code_filters_gitlab(self):
+    async def test_claude_code_filters_gitlab(self):
         """Claude Code should NOT get gitlab-mcp (has native glab CLI)."""
         profile = self._make_profile([("gitlab", TechnologyCategory.SERVICE)])
-        recs = recommend_servers(profile, client=MCPClient.CLAUDE_CODE)
+        recs = await recommend_servers(profile, client=MCPClient.CLAUDE_CODE)
         rec_names = {r.server_name for r in recs}
         assert "gitlab-mcp" not in rec_names
 

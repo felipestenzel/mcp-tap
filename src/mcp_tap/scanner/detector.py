@@ -15,6 +15,7 @@ import re
 import tomllib
 from dataclasses import replace
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from mcp_tap.errors import ScanError
 from mcp_tap.models import (
@@ -26,6 +27,9 @@ from mcp_tap.models import (
 from mcp_tap.scanner.recommendations import recommend_servers
 from mcp_tap.scanner.workflow import parse_ci_configs
 
+if TYPE_CHECKING:
+    from mcp_tap.registry.base import RegistryClientPort
+
 logger = logging.getLogger(__name__)
 
 
@@ -36,6 +40,7 @@ async def scan_project(
     path: str,
     *,
     client: MCPClient | None = None,
+    registry: RegistryClientPort | None = None,
 ) -> ProjectProfile:
     """Scan a project directory and return a complete ProjectProfile.
 
@@ -44,6 +49,10 @@ async def scan_project(
         client: The MCP client where servers will be installed. When set,
             recommendations redundant with the client's native capabilities
             are filtered out (e.g. filesystem MCP is skipped for Claude Code).
+        registry: Optional registry client for dynamic server discovery.
+            When provided, technologies without curated mappings trigger
+            a registry search. On error/timeout, silently falls back to
+            static-only recommendations.
 
     Returns:
         A ProjectProfile with detected technologies, env var names,
@@ -91,7 +100,7 @@ async def scan_project(
         technologies=technologies,
         env_var_names=env_var_names,
     )
-    recommendations = recommend_servers(profile, client=client)
+    recommendations = await recommend_servers(profile, client=client, registry=registry)
 
     return replace(profile, recommendations=recommendations)
 
@@ -387,6 +396,125 @@ async def _detect_platform_files(root: Path) -> _ParseResult:
             )
         )
 
+    # IaC
+    if any((root / f).is_file() for f in ("main.tf", "terraform.tf")):
+        techs.append(
+            DetectedTechnology(
+                name="terraform",
+                category=TechnologyCategory.PLATFORM,
+                source_file="*.tf",
+            )
+        )
+    if (root / "Pulumi.yaml").is_file():
+        techs.append(
+            DetectedTechnology(
+                name="pulumi",
+                category=TechnologyCategory.PLATFORM,
+                source_file="Pulumi.yaml",
+            )
+        )
+
+    # Services
+    if any(
+        (root / f).is_file()
+        for f in ("sentry.properties", "sentry.client.config.ts", "sentry.client.config.js")
+    ):
+        techs.append(
+            DetectedTechnology(
+                name="sentry",
+                category=TechnologyCategory.SERVICE,
+                source_file="sentry config",
+            )
+        )
+    if any((root / f).is_file() for f in ("firebase.json", ".firebaserc")):
+        techs.append(
+            DetectedTechnology(
+                name="firebase",
+                category=TechnologyCategory.SERVICE,
+                source_file="firebase config",
+            )
+        )
+    if (root / "supabase" / "config.toml").is_file():
+        techs.append(
+            DetectedTechnology(
+                name="supabase",
+                category=TechnologyCategory.SERVICE,
+                source_file="supabase/config.toml",
+            )
+        )
+    if (root / "wrangler.toml").is_file():
+        techs.append(
+            DetectedTechnology(
+                name="cloudflare",
+                category=TechnologyCategory.PLATFORM,
+                source_file="wrangler.toml",
+            )
+        )
+
+    # Monorepo
+    if (root / "turbo.json").is_file():
+        techs.append(
+            DetectedTechnology(
+                name="turborepo",
+                category=TechnologyCategory.PLATFORM,
+                source_file="turbo.json",
+            )
+        )
+    if (root / "nx.json").is_file():
+        techs.append(
+            DetectedTechnology(
+                name="nx",
+                category=TechnologyCategory.PLATFORM,
+                source_file="nx.json",
+            )
+        )
+    if (root / "lerna.json").is_file():
+        techs.append(
+            DetectedTechnology(
+                name="lerna",
+                category=TechnologyCategory.PLATFORM,
+                source_file="lerna.json",
+            )
+        )
+
+    # Testing
+    if any((root / f).is_file() for f in ("playwright.config.ts", "playwright.config.js")):
+        techs.append(
+            DetectedTechnology(
+                name="playwright",
+                category=TechnologyCategory.SERVICE,
+                source_file="playwright config",
+            )
+        )
+    if any(
+        (root / f).is_file() for f in ("cypress.config.ts", "cypress.config.js", "cypress.json")
+    ):
+        techs.append(
+            DetectedTechnology(
+                name="cypress",
+                category=TechnologyCategory.SERVICE,
+                source_file="cypress config",
+            )
+        )
+
+    # Deployment
+    if (root / "fly.toml").is_file():
+        techs.append(
+            DetectedTechnology(
+                name="fly.io",
+                category=TechnologyCategory.PLATFORM,
+                source_file="fly.toml",
+            )
+        )
+    if (root / "render.yaml").is_file():
+        techs.append(
+            DetectedTechnology(
+                name="render",
+                category=TechnologyCategory.PLATFORM,
+                source_file="render.yaml",
+            )
+        )
+
     return techs, []
 
 
@@ -427,7 +555,45 @@ _NODE_DEP_MAP: dict[str, tuple[str, TechnologyCategory]] = {
     "@octokit/core": ("github", TechnologyCategory.SERVICE),
     "@octokit/rest": ("github", TechnologyCategory.SERVICE),
     "octokit": ("github", TechnologyCategory.SERVICE),
+    # AI/ML
+    "openai": ("openai", TechnologyCategory.SERVICE),
+    "@anthropic-ai/sdk": ("anthropic", TechnologyCategory.SERVICE),
+    # Services
+    "stripe": ("stripe", TechnologyCategory.SERVICE),
+    "sentry": ("sentry", TechnologyCategory.SERVICE),
+    # BaaS
+    "firebase": ("firebase", TechnologyCategory.SERVICE),
+    "supabase": ("supabase", TechnologyCategory.SERVICE),
 }
+
+# Node.js @org/ prefix patterns → (technology_name, category)
+# Checked after exact match; enables detection via any scoped package
+_NODE_PREFIX_MAP: list[tuple[str, str, TechnologyCategory]] = [
+    ("@sentry/", "sentry", TechnologyCategory.SERVICE),
+    ("@stripe/", "stripe", TechnologyCategory.SERVICE),
+    ("@datadog/", "datadog", TechnologyCategory.SERVICE),
+    ("@supabase/", "supabase", TechnologyCategory.SERVICE),
+    ("@firebase/", "firebase", TechnologyCategory.SERVICE),
+    ("@auth0/", "auth0", TechnologyCategory.SERVICE),
+    ("@clerk/", "clerk", TechnologyCategory.SERVICE),
+    ("@notionhq/", "notion", TechnologyCategory.SERVICE),
+    ("@linear/", "linear", TechnologyCategory.SERVICE),
+    ("@aws-sdk/", "aws", TechnologyCategory.PLATFORM),
+    ("@google-cloud/", "gcp", TechnologyCategory.PLATFORM),
+    ("@azure/", "azure", TechnologyCategory.PLATFORM),
+    ("@cloudflare/", "cloudflare", TechnologyCategory.PLATFORM),
+    ("@vercel/", "vercel", TechnologyCategory.PLATFORM),
+    ("@langchain/", "langchain", TechnologyCategory.SERVICE),
+    ("@huggingface/", "huggingface", TechnologyCategory.SERVICE),
+    ("@contentful/", "contentful", TechnologyCategory.SERVICE),
+    ("@sanity/", "sanity", TechnologyCategory.SERVICE),
+    ("@shopify/", "shopify", TechnologyCategory.SERVICE),
+    ("@playwright/", "playwright", TechnologyCategory.SERVICE),
+    ("@pulumi/", "pulumi", TechnologyCategory.PLATFORM),
+    ("@prisma/", "prisma", TechnologyCategory.SERVICE),
+    ("@twilio/", "twilio", TechnologyCategory.SERVICE),
+    ("@sendgrid/", "sendgrid", TechnologyCategory.SERVICE),
+]
 
 # Python dependency name → (technology_name, category)
 _PYTHON_DEP_MAP: dict[str, tuple[str, TechnologyCategory]] = {
@@ -457,6 +623,32 @@ _PYTHON_DEP_MAP: dict[str, tuple[str, TechnologyCategory]] = {
     "slack-bolt": ("slack", TechnologyCategory.SERVICE),
     "pygithub": ("github", TechnologyCategory.SERVICE),
     "githubkit": ("github", TechnologyCategory.SERVICE),
+    # AI/ML
+    "openai": ("openai", TechnologyCategory.SERVICE),
+    "anthropic": ("anthropic", TechnologyCategory.SERVICE),
+    "langchain": ("langchain", TechnologyCategory.SERVICE),
+    "langchain-core": ("langchain", TechnologyCategory.SERVICE),
+    "transformers": ("huggingface", TechnologyCategory.SERVICE),
+    "sentence-transformers": ("huggingface", TechnologyCategory.SERVICE),
+    # Cloud
+    "boto3": ("aws", TechnologyCategory.PLATFORM),
+    "botocore": ("aws", TechnologyCategory.PLATFORM),
+    "google-cloud-storage": ("gcp", TechnologyCategory.PLATFORM),
+    "google-cloud-bigquery": ("gcp", TechnologyCategory.PLATFORM),
+    "azure-storage-blob": ("azure", TechnologyCategory.PLATFORM),
+    "azure-identity": ("azure", TechnologyCategory.PLATFORM),
+    # Services (continued)
+    "sentry-sdk": ("sentry", TechnologyCategory.SERVICE),
+    "stripe": ("stripe", TechnologyCategory.SERVICE),
+    "supabase": ("supabase", TechnologyCategory.SERVICE),
+    "firebase-admin": ("firebase", TechnologyCategory.SERVICE),
+    "twilio": ("twilio", TechnologyCategory.SERVICE),
+    "sendgrid": ("sendgrid", TechnologyCategory.SERVICE),
+    # Databases (continued)
+    "elasticsearch": ("elasticsearch", TechnologyCategory.DATABASE),
+    # Task queues
+    "celery": ("celery", TechnologyCategory.SERVICE),
+    "dramatiq": ("dramatiq", TechnologyCategory.SERVICE),
 }
 
 # Docker image name fragments → (technology_name, category)
@@ -469,6 +661,12 @@ _DOCKER_IMAGE_MAP: dict[str, tuple[str, TechnologyCategory]] = {
     "mysql": ("mysql", TechnologyCategory.DATABASE),
     "mariadb": ("mysql", TechnologyCategory.DATABASE),
     "memcached": ("memcached", TechnologyCategory.DATABASE),
+    "nginx": ("nginx", TechnologyCategory.SERVICE),
+    "kafka": ("kafka", TechnologyCategory.SERVICE),
+    "grafana": ("grafana", TechnologyCategory.SERVICE),
+    "prometheus": ("prometheus", TechnologyCategory.SERVICE),
+    "minio": ("minio", TechnologyCategory.SERVICE),
+    "clickhouse": ("clickhouse", TechnologyCategory.DATABASE),
 }
 
 # Env var patterns → technology name
@@ -484,6 +682,17 @@ _ENV_PATTERNS: list[tuple[re.Pattern[str], str, TechnologyCategory]] = [
     (re.compile(r"^GITLAB_", re.IGNORECASE), "gitlab", TechnologyCategory.SERVICE),
     (re.compile(r"^ELASTICSEARCH", re.IGNORECASE), "elasticsearch", TechnologyCategory.DATABASE),
     (re.compile(r"^RABBITMQ", re.IGNORECASE), "rabbitmq", TechnologyCategory.SERVICE),
+    (re.compile(r"^SENTRY_", re.IGNORECASE), "sentry", TechnologyCategory.SERVICE),
+    (re.compile(r"^STRIPE_", re.IGNORECASE), "stripe", TechnologyCategory.SERVICE),
+    (re.compile(r"^OPENAI_", re.IGNORECASE), "openai", TechnologyCategory.SERVICE),
+    (re.compile(r"^ANTHROPIC_", re.IGNORECASE), "anthropic", TechnologyCategory.SERVICE),
+    (re.compile(r"^SUPABASE_", re.IGNORECASE), "supabase", TechnologyCategory.SERVICE),
+    (re.compile(r"^FIREBASE_", re.IGNORECASE), "firebase", TechnologyCategory.SERVICE),
+    (re.compile(r"^AWS_", re.IGNORECASE), "aws", TechnologyCategory.PLATFORM),
+    (re.compile(r"^DATADOG_", re.IGNORECASE), "datadog", TechnologyCategory.SERVICE),
+    (re.compile(r"^CLOUDFLARE_", re.IGNORECASE), "cloudflare", TechnologyCategory.PLATFORM),
+    (re.compile(r"^LINEAR_", re.IGNORECASE), "linear", TechnologyCategory.SERVICE),
+    (re.compile(r"^NOTION_", re.IGNORECASE), "notion", TechnologyCategory.SERVICE),
 ]
 
 
@@ -493,10 +702,14 @@ def _match_node_deps(
 ) -> list[DetectedTechnology]:
     """Map Node.js dependency names to detected technologies."""
     techs: list[DetectedTechnology] = []
+    matched_techs: set[str] = set()
+
+    # Pass 1: exact match (highest confidence)
     for dep_name in dep_names:
         mapping = _NODE_DEP_MAP.get(dep_name.lower())
         if mapping is not None:
             tech_name, category = mapping
+            matched_techs.add(tech_name)
             techs.append(
                 DetectedTechnology(
                     name=tech_name,
@@ -504,6 +717,23 @@ def _match_node_deps(
                     source_file=source_file,
                 )
             )
+
+    # Pass 2: @org/ prefix match (slightly lower confidence)
+    for dep_name in dep_names:
+        dep_lower = dep_name.lower()
+        for prefix, tech_name, category in _NODE_PREFIX_MAP:
+            if dep_lower.startswith(prefix) and tech_name not in matched_techs:
+                matched_techs.add(tech_name)
+                techs.append(
+                    DetectedTechnology(
+                        name=tech_name,
+                        category=category,
+                        source_file=source_file,
+                        confidence=0.9,
+                    )
+                )
+                break
+
     return techs
 
 

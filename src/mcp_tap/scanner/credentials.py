@@ -24,6 +24,16 @@ COMPATIBLE_VARS: dict[str, list[str]] = {
     "ANTHROPIC_API_KEY": ["ANTHROPIC_KEY", "CLAUDE_API_KEY"],
     "GITLAB_TOKEN": ["GITLAB_PERSONAL_ACCESS_TOKEN", "GL_TOKEN"],
     "LINEAR_API_KEY": ["LINEAR_TOKEN"],
+    "STRIPE_API_KEY": ["STRIPE_SECRET_KEY", "STRIPE_KEY"],
+    "SENTRY_AUTH_TOKEN": ["SENTRY_TOKEN", "SENTRY_API_KEY"],
+    "SUPABASE_URL": ["SUPABASE_API_URL"],
+    "SUPABASE_KEY": ["SUPABASE_ANON_KEY", "SUPABASE_SERVICE_ROLE_KEY"],
+    "FIREBASE_TOKEN": ["FIREBASE_API_KEY"],
+    "NOTION_API_KEY": ["NOTION_TOKEN", "NOTION_INTEGRATION_TOKEN"],
+    "DATADOG_API_KEY": ["DD_API_KEY", "DATADOG_KEY"],
+    "CLOUDFLARE_API_TOKEN": ["CF_API_TOKEN", "CLOUDFLARE_TOKEN"],
+    "TWILIO_AUTH_TOKEN": ["TWILIO_TOKEN"],
+    "SENDGRID_API_KEY": ["SENDGRID_KEY"],
 }
 
 # ─── Help URL mapping ────────────────────────────────────────
@@ -37,6 +47,15 @@ CREDENTIAL_HELP: dict[str, str] = {
     "ANTHROPIC_API_KEY": "https://console.anthropic.com/settings/keys",
     "LINEAR_API_KEY": "https://linear.app/settings/api",
     "SENTRY_AUTH_TOKEN": "https://sentry.io/settings/auth-tokens/",
+    "STRIPE_API_KEY": "https://dashboard.stripe.com/apikeys",
+    "SUPABASE_URL": "https://supabase.com/dashboard/project/_/settings/api",
+    "SUPABASE_KEY": "https://supabase.com/dashboard/project/_/settings/api",
+    "FIREBASE_TOKEN": "https://console.firebase.google.com/project/_/settings/serviceaccounts/adminsdk",
+    "NOTION_API_KEY": "https://www.notion.so/my-integrations",
+    "DATADOG_API_KEY": "https://app.datadoghq.com/organization-settings/api-keys",
+    "CLOUDFLARE_API_TOKEN": "https://dash.cloudflare.com/profile/api-tokens",
+    "TWILIO_AUTH_TOKEN": "https://console.twilio.com/",
+    "SENDGRID_API_KEY": "https://app.sendgrid.com/settings/api_keys",
 }
 
 # ─── Server → required env vars ──────────────────────────────
@@ -50,6 +69,14 @@ SERVER_ENV_VARS: dict[str, list[str]] = {
     "@modelcontextprotocol/server-slack": ["SLACK_BOT_TOKEN"],
     "mcp-server-redis": ["REDIS_URL"],
     "mcp-server-mongodb": ["MONGODB_URI"],
+    "@sentry/mcp-server-sentry": ["SENTRY_AUTH_TOKEN"],
+    "@stripe/mcp": ["STRIPE_API_KEY"],
+    "@supabase/mcp-server-supabase": ["SUPABASE_URL", "SUPABASE_KEY"],
+    "@notionhq/notion-mcp-server": ["NOTION_API_KEY"],
+    "mcp-linear": ["LINEAR_API_KEY"],
+    "firebase-mcp-server": ["FIREBASE_TOKEN"],
+    "datadog-mcp-server": ["DATADOG_API_KEY"],
+    "@cloudflare/mcp-server-cloudflare": ["CLOUDFLARE_API_TOKEN"],
 }
 
 
