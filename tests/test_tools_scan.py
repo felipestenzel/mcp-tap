@@ -423,16 +423,32 @@ class TestBuildSummary:
         )
         assert "already installed" in summary.lower()
 
-    def test_no_recommendations(self):
-        """Should mention no recommendations when rec_count is 0."""
+    def test_no_recommendations_no_searches(self):
+        """Should mention browsing the registry when no direct matches and no suggested searches."""
         summary = _build_summary(
             project_path="/p",
             tech_count=0,
             rec_count=0,
             installed_count=0,
             env_var_count=0,
+            suggested_search_count=0,
         )
-        assert "No MCP server recommendations" in summary
+        assert "No direct catalog matches" in summary
+        assert "MCP Registry" in summary
+
+    def test_no_recommendations_with_suggested_searches(self):
+        """Should mention extended discovery when no direct matches but suggested searches exist."""
+        summary = _build_summary(
+            project_path="/p",
+            tech_count=2,
+            rec_count=0,
+            installed_count=0,
+            env_var_count=0,
+            suggested_search_count=4,
+        )
+        assert "Extended registry discovery" in summary
+        assert "4" in summary
+        assert "suggested_searches" in summary
 
     def test_missing_count(self):
         """Should mention how many servers are missing."""

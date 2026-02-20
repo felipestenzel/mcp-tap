@@ -74,6 +74,16 @@ _ARCHETYPE_DEFS: dict[str, dict] = {
         "min_groups": 2,
         "extra_queries": ["payments", "inventory", "email marketing"],
     },
+    "python_library": {
+        "label": "Python Library / CLI Tool",
+        "groups": [
+            {"python"},
+            {"hatchling", "setuptools", "poetry", "flit", "pdm", "maturin", "build"},
+            {"pytest", "unittest", "nox", "tox"},
+        ],
+        "min_groups": 2,
+        "extra_queries": ["notifications", "pypi", "documentation", "testing"],
+    },
 }
 
 
