@@ -11,7 +11,7 @@ from mcp_tap.models import (
     MCPClient,
     ServerConfig,
 )
-from mcp_tap.tools.list import _mask_env, list_installed
+from mcp_tap.tools.list import _looks_like_secret, _mask_env, list_installed
 
 # --- Helpers ---------------------------------------------------------------
 
@@ -72,6 +72,102 @@ class TestMaskEnv:
 
     def test_empty_dict(self):
         assert _mask_env({}) == {}
+
+
+# --- _looks_like_secret tests (L1 false positive fix) ---------------------
+
+
+class TestLooksLikeSecret:
+    """Test the layered secret detection heuristics."""
+
+    # Layer 1: key name hints
+    def test_key_with_token_hint(self):
+        assert _looks_like_secret("SLACK_TOKEN", "xoxb-123") is True
+
+    def test_key_with_secret_hint(self):
+        assert _looks_like_secret("MY_SECRET", "anyvalue") is True
+
+    def test_key_with_password_hint(self):
+        assert _looks_like_secret("DB_PASSWORD", "short") is True
+
+    def test_key_with_api_key_hint(self):
+        assert _looks_like_secret("OPENAI_API_KEY", "sk-abc") is True
+
+    def test_key_with_auth_hint(self):
+        assert _looks_like_secret("AUTH_HEADER", "value") is True
+
+    def test_key_with_credential_hint(self):
+        assert _looks_like_secret("GCP_CREDENTIAL", "json") is True
+
+    def test_key_with_private_hint(self):
+        assert _looks_like_secret("PRIVATE_KEY", "pem") is True
+
+    # Layer 2: value prefixes
+    def test_openai_prefix(self):
+        assert _looks_like_secret("SOME_VAR", "sk-abc123") is True
+
+    def test_github_pat_prefix(self):
+        assert _looks_like_secret("GH", "ghp_abcdefg123456") is True
+
+    def test_github_server_token_prefix(self):
+        assert _looks_like_secret("GH", "ghs_abcdefg123456") is True
+
+    def test_github_fine_grained_prefix(self):
+        assert _looks_like_secret("GH", "github_pat_abc123") is True
+
+    def test_slack_bot_prefix(self):
+        assert _looks_like_secret("SLACK", "xoxb-123-456") is True
+
+    def test_slack_user_prefix(self):
+        assert _looks_like_secret("SLACK", "xoxp-123-456") is True
+
+    def test_gitlab_pat_prefix(self):
+        assert _looks_like_secret("GL", "glpat-abcdef123") is True
+
+    def test_aws_access_key_prefix(self):
+        assert _looks_like_secret("AWS", "AKIAIOSFODNN7EXAMPLE") is True
+
+    def test_jwt_prefix(self):
+        assert _looks_like_secret("DATA", "eyJhbGciOiJIUzI1NiIs") is True
+
+    def test_bearer_prefix(self):
+        assert _looks_like_secret("HEADER", "bearer mytoken123") is True
+
+    # Layer 3: high-entropy fallback (40+ chars)
+    def test_long_base64_string(self):
+        long_val = "A" * 40
+        assert _looks_like_secret("UNKNOWN", long_val) is True
+
+    def test_39_chars_not_masked(self):
+        """39 chars is under the 40-char threshold."""
+        val = "A" * 39
+        assert _looks_like_secret("UNKNOWN", val) is False
+
+    # False positive prevention
+    def test_normal_path_not_masked(self):
+        """Paths with slashes are not caught by high-entropy pattern."""
+        assert _looks_like_secret("NODE_PATH", "/usr/local/bin/node") is False
+
+    def test_normal_url_not_masked(self):
+        assert _looks_like_secret("DATABASE_HOST", "postgresql://localhost:5432/mydb") is False
+
+    def test_short_normal_value_not_masked(self):
+        assert _looks_like_secret("PORT", "3000") is False
+
+    def test_normal_string_value_not_masked(self):
+        assert _looks_like_secret("APP_NAME", "my-cool-application") is False
+
+    def test_medium_length_value_not_masked(self):
+        """25-char values should NOT be masked if key is not secret-like."""
+        assert _looks_like_secret("REGION", "us-east-1-long-region-name") is False
+
+    def test_production_host_not_masked(self):
+        assert _looks_like_secret("HOST", "production-db-server-host.example.com") is False
+
+    # Key name hint is case-insensitive
+    def test_key_hint_case_insensitive(self):
+        assert _looks_like_secret("My_Api_Key", "somevalue") is True
+        assert _looks_like_secret("GITHUB_TOKEN", "somevalue") is True
 
 
 # --- list_installed tests --------------------------------------------------

@@ -12,14 +12,70 @@ from mcp_tap.config.reader import parse_servers, read_config
 from mcp_tap.errors import McpTapError
 from mcp_tap.models import MCPClient
 
-_SECRET_PATTERN = re.compile(r"^[A-Za-z0-9+/=_\-]{20,}$")
+# Key names that indicate secrets (case-insensitive substring match)
+_SECRET_KEY_HINTS: frozenset[str] = frozenset(
+    {
+        "key",
+        "secret",
+        "token",
+        "password",
+        "passwd",
+        "credential",
+        "api_key",
+        "apikey",
+        "auth",
+        "private",
+    }
+)
+
+# Value prefixes known to be secrets (provider-specific API key prefixes)
+_SECRET_VALUE_PREFIXES: tuple[str, ...] = (
+    "sk-",  # OpenAI, Stripe, Anthropic
+    "ghp_",  # GitHub personal access token
+    "ghs_",  # GitHub server-to-server token
+    "gho_",  # GitHub OAuth token
+    "github_pat_",  # GitHub fine-grained PAT
+    "xoxb-",  # Slack bot token
+    "xoxp-",  # Slack user token
+    "xapp-",  # Slack app-level token
+    "glpat-",  # GitLab personal access token
+    "AKIA",  # AWS access key ID
+    "eyJ",  # JWT (base64 of {"...)
+    "bearer ",  # Bearer token
+)
+
+# Fallback: high-entropy strings (base64-like, 40+ chars, no spaces or common path chars)
+_HIGH_ENTROPY_PATTERN = re.compile(r"^[A-Za-z0-9+/=_\-]{40,}$")
+
+
+def _looks_like_secret(key: str, value: str) -> bool:
+    """Determine if an env var value is likely a secret.
+
+    Uses a layered approach to reduce false positives:
+    1. Known secret key name patterns (KEY, TOKEN, SECRET, etc.)
+    2. Known provider-specific value prefixes (sk-, ghp_, xoxb-, etc.)
+    3. High-entropy fallback for very long base64-like strings (40+ chars)
+    """
+    # Layer 1: key name contains secret-like hint
+    key_lower = key.lower()
+    for hint in _SECRET_KEY_HINTS:
+        if hint in key_lower:
+            return True
+
+    # Layer 2: value starts with known secret prefix
+    for prefix in _SECRET_VALUE_PREFIXES:
+        if value.startswith(prefix):
+            return True
+
+    # Layer 3: high-entropy fallback (40+ chars, stricter than before)
+    return bool(_HIGH_ENTROPY_PATTERN.match(value))
 
 
 def _mask_env(env: dict[str, str]) -> dict[str, str]:
     """Mask environment variable values that look like secrets."""
     masked: dict[str, str] = {}
     for key, value in env.items():
-        if _SECRET_PATTERN.match(value):
+        if _looks_like_secret(key, value):
             masked[key] = "***"
         else:
             masked[key] = value

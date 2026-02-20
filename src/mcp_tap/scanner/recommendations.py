@@ -120,6 +120,24 @@ TECHNOLOGY_SERVER_MAP: dict[str, list[ServerRecommendation]] = {
             priority="low",
         ),
     ],
+    "aws": [
+        ServerRecommendation(
+            server_name="aws-mcp",
+            package_identifier="@modelcontextprotocol/server-aws-kb-retrieval",
+            registry_type=RegistryType.NPM,
+            reason="AWS services detected in CI/CD pipeline",
+            priority="medium",
+        ),
+    ],
+    "kubernetes": [
+        ServerRecommendation(
+            server_name="kubernetes-mcp",
+            package_identifier="mcp-server-kubernetes",
+            registry_type=RegistryType.NPM,
+            reason="Kubernetes detected in CI/CD pipeline — manage clusters and deployments",
+            priority="medium",
+        ),
+    ],
 }
 
 
