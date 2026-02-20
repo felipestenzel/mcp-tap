@@ -1,7 +1,7 @@
 # Scan quality gap for Python-only projects + LLM framing problem
 
 - **Date**: 2026-02-20
-- **Status**: `in_progress`
+- **Status**: `done`
 - **Branch**: `fix/2026-02-20-scan-quality-llm-framing`
 - **Priority**: `high`
 
