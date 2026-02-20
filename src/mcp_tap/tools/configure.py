@@ -6,8 +6,12 @@ import logging
 import re
 from dataclasses import asdict
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from mcp.server.fastmcp import Context
+
+if TYPE_CHECKING:
+    import httpx
 
 from mcp_tap.config.detection import resolve_config_locations
 from mcp_tap.config.writer import write_server_config
@@ -20,8 +24,10 @@ from mcp_tap.models import (
     ConfigureResult,
     ConnectionTestResult,
     RegistryType,
+    SecurityReport,
     ServerConfig,
 )
+from mcp_tap.security.gate import run_security_gate
 
 logger = logging.getLogger(__name__)
 
@@ -116,6 +122,29 @@ async def configure_server(
         command, args = installer.build_server_command(package_identifier)
         env = _parse_env_vars(env_vars)
         server_config = ServerConfig(command=command, args=args, env=env)
+
+        # Step 3.5: Run security gate
+        security_report = await _run_security_check(
+            package_identifier=package_identifier,
+            repository_url="",
+            command=command,
+            args=args,
+            ctx=ctx,
+        )
+        if security_report and not security_report.passed:
+            return asdict(
+                ConfigureResult(
+                    success=False,
+                    server_name=server_name,
+                    config_file="",
+                    message=(
+                        f"Security gate BLOCKED installation of '{server_name}': "
+                        + "; ".join(s.message for s in security_report.blockers)
+                        + " Use configure_server with bypass_security=True to override."
+                    ),
+                    install_status="blocked_by_security",
+                )
+            )
 
         # Step 4: Write config to each target client
         if len(locations) == 1:
@@ -422,6 +451,40 @@ async def _try_heal(
         )
 
     return False, server_config, info
+
+
+async def _run_security_check(
+    package_identifier: str,
+    repository_url: str,
+    command: str,
+    args: list[str],
+    ctx: Context,
+) -> SecurityReport | None:
+    """Run security gate. Returns None if check fails (non-blocking)."""
+    try:
+        http_client: httpx.AsyncClient | None = None
+        try:
+            app_ctx = ctx.request_context.lifespan_context
+            http_client = app_ctx.http_client
+        except Exception:
+            pass
+
+        report = await run_security_gate(
+            package_identifier=package_identifier,
+            repository_url=repository_url,
+            command=command,
+            args=args,
+            http_client=http_client,
+        )
+
+        if report.warnings:
+            for w in report.warnings:
+                await ctx.info(f"Security warning: {w.message}")
+
+        return report
+    except Exception:
+        logger.debug("Security gate check failed (non-blocking)", exc_info=True)
+        return None
 
 
 def _update_lockfile(
