@@ -309,11 +309,21 @@ def _extract_gitlab_scripts(
 
 # ─── GitLab CI known keywords (not job names) ────────────────
 
-_GITLAB_KEYWORDS: frozenset[str] = frozenset({
-    "image", "services", "stages", "variables", "cache",
-    "before_script", "after_script", "default", "include",
-    "workflow", "pages",
-})
+_GITLAB_KEYWORDS: frozenset[str] = frozenset(
+    {
+        "image",
+        "services",
+        "stages",
+        "variables",
+        "cache",
+        "before_script",
+        "after_script",
+        "default",
+        "include",
+        "workflow",
+        "pages",
+    }
+)
 
 
 # ─── Matching Helpers ────────────────────────────────────────

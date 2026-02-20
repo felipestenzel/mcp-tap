@@ -325,9 +325,7 @@ class TestParseGithubWorkflows:
         """Should return empty when jobs is not a dict (e.g., a list)."""
         wf_dir = tmp_path / ".github" / "workflows"
         wf_dir.mkdir(parents=True)
-        (wf_dir / "weird.yml").write_text(
-            "name: Weird\non: push\njobs:\n  - not a dict\n"
-        )
+        (wf_dir / "weird.yml").write_text("name: Weird\non: push\njobs:\n  - not a dict\n")
         techs, _ = await _parse_github_workflows(tmp_path)
         assert techs == []
 
@@ -423,10 +421,10 @@ class TestParseGithubWorkflows:
         techs, _ = await _parse_github_workflows(tmp_path)
         names = {t.name for t in techs}
         assert "postgresql" in names  # service confidence=0.85
-        assert "redis" in names       # service confidence=0.85
-        assert "aws" in names         # action confidence=0.8
-        assert "docker" in names      # action confidence=0.8
-        assert "terraform" in names   # run confidence=0.7
+        assert "redis" in names  # service confidence=0.85
+        assert "aws" in names  # action confidence=0.8
+        assert "docker" in names  # action confidence=0.8
+        assert "terraform" in names  # run confidence=0.7
         assert "kubernetes" in names  # run confidence=0.7
 
     async def test_env_vars_always_empty(self, tmp_path: Path) -> None:
@@ -492,21 +490,13 @@ class TestParseGitlabCi:
 
     async def test_top_level_image_python_not_matched(self, tmp_path: Path) -> None:
         """Should NOT match a python image (python is not in CI_IMAGE_MAP)."""
-        (tmp_path / ".gitlab-ci.yml").write_text(
-            "image: python:3.12\n"
-            "stages:\n"
-            "  - test\n"
-        )
+        (tmp_path / ".gitlab-ci.yml").write_text("image: python:3.12\nstages:\n  - test\n")
         techs, _ = await _parse_gitlab_ci(tmp_path)
         assert techs == []
 
     async def test_top_level_image_postgres_matched(self, tmp_path: Path) -> None:
         """Should detect postgres from top-level image directive."""
-        (tmp_path / ".gitlab-ci.yml").write_text(
-            "image: postgres:16\n"
-            "stages:\n"
-            "  - test\n"
-        )
+        (tmp_path / ".gitlab-ci.yml").write_text("image: postgres:16\nstages:\n  - test\n")
         techs, _ = await _parse_gitlab_ci(tmp_path)
         names = {t.name for t in techs}
         assert "postgresql" in names
@@ -615,9 +605,7 @@ class TestParseGitlabCi:
 
     async def test_malformed_yaml_returns_empty(self, tmp_path: Path) -> None:
         """Should return empty for malformed YAML without crashing."""
-        (tmp_path / ".gitlab-ci.yml").write_text(
-            ": : : {{{{ not valid yaml >>>"
-        )
+        (tmp_path / ".gitlab-ci.yml").write_text(": : : {{{{ not valid yaml >>>")
         techs, _ = await _parse_gitlab_ci(tmp_path)
         assert techs == []
 
@@ -629,12 +617,7 @@ class TestParseGitlabCi:
 
     async def test_source_file_is_gitlab_ci(self, tmp_path: Path) -> None:
         """Should set source_file to '.gitlab-ci.yml'."""
-        (tmp_path / ".gitlab-ci.yml").write_text(
-            "services:\n"
-            "  - postgres:16\n"
-            "stages:\n"
-            "  - test\n"
-        )
+        (tmp_path / ".gitlab-ci.yml").write_text("services:\n  - postgres:16\nstages:\n  - test\n")
         techs, _ = await _parse_gitlab_ci(tmp_path)
         for tech in techs:
             assert tech.source_file == ".gitlab-ci.yml"
@@ -658,11 +641,7 @@ class TestParseGitlabCi:
     async def test_image_as_dict_with_name(self, tmp_path: Path) -> None:
         """Should handle image specified as dict with name key."""
         (tmp_path / ".gitlab-ci.yml").write_text(
-            "image:\n"
-            "  name: elasticsearch:8.12\n"
-            "  entrypoint: ['']\n"
-            "stages:\n"
-            "  - test\n"
+            "image:\n  name: elasticsearch:8.12\n  entrypoint: ['']\nstages:\n  - test\n"
         )
         techs, _ = await _parse_gitlab_ci(tmp_path)
         names = {t.name for t in techs}
@@ -670,9 +649,7 @@ class TestParseGitlabCi:
 
     async def test_env_vars_always_empty(self, tmp_path: Path) -> None:
         """GitLab CI parser should always return empty env_vars."""
-        (tmp_path / ".gitlab-ci.yml").write_text(
-            "services:\n  - postgres:16\nstages:\n  - test\n"
-        )
+        (tmp_path / ".gitlab-ci.yml").write_text("services:\n  - postgres:16\nstages:\n  - test\n")
         _, env_vars = await _parse_gitlab_ci(tmp_path)
         assert env_vars == []
 
@@ -879,13 +856,11 @@ class TestParseCiConfigs:
             "    steps: []\n"
         )
         # Create GitLab CI
-        (tmp_path / ".gitlab-ci.yml").write_text(
-            "services:\n  - redis:7\nstages:\n  - test\n"
-        )
+        (tmp_path / ".gitlab-ci.yml").write_text("services:\n  - redis:7\nstages:\n  - test\n")
         techs, _ = await parse_ci_configs(tmp_path)
         names = {t.name for t in techs}
         assert "postgresql" in names  # from GitHub Actions
-        assert "redis" in names       # from GitLab CI
+        assert "redis" in names  # from GitLab CI
 
     async def test_neither_config_present(self, tmp_path: Path) -> None:
         """Should return empty when no CI configs exist."""
@@ -907,21 +882,15 @@ class TestParseCiConfigs:
 
     async def test_only_gitlab_present(self, tmp_path: Path) -> None:
         """Should work with only GitLab CI config."""
-        (tmp_path / ".gitlab-ci.yml").write_text(
-            "services:\n  - mongo:7\nstages:\n  - test\n"
-        )
+        (tmp_path / ".gitlab-ci.yml").write_text("services:\n  - mongo:7\nstages:\n  - test\n")
         techs, _ = await parse_ci_configs(tmp_path)
         names = {t.name for t in techs}
         assert "mongodb" in names
 
-    async def test_exception_in_one_parser_doesnt_break_other(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_exception_in_one_parser_doesnt_break_other(self, tmp_path: Path) -> None:
         """Should still return results from working parser when one fails."""
         # Create valid GitLab CI
-        (tmp_path / ".gitlab-ci.yml").write_text(
-            "services:\n  - redis:7\nstages:\n  - test\n"
-        )
+        (tmp_path / ".gitlab-ci.yml").write_text("services:\n  - redis:7\nstages:\n  - test\n")
         # GitHub workflows dir exists but has bad perms
         # (We test this by simply not having GitHub configs -- both parsers succeed
         #  with at least one returning results)
@@ -997,16 +966,12 @@ class TestCiConfigsInFullScan:
         assert "postgresql" in tech_names
         assert "kubernetes" in tech_names
 
-    async def test_deduplication_across_ci_and_docker_compose(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_deduplication_across_ci_and_docker_compose(self, tmp_path: Path) -> None:
         """Technology found in both CI and docker-compose should be deduplicated."""
         from mcp_tap.scanner.detector import scan_project
 
         # Detect postgres from both docker-compose AND GitHub Actions
-        (tmp_path / "docker-compose.yml").write_text(
-            "services:\n  db:\n    image: postgres:16\n"
-        )
+        (tmp_path / "docker-compose.yml").write_text("services:\n  db:\n    image: postgres:16\n")
         wf_dir = tmp_path / ".github" / "workflows"
         wf_dir.mkdir(parents=True)
         (wf_dir / "ci.yml").write_text(
@@ -1075,17 +1040,14 @@ class TestConfidenceLevels:
 
     async def test_gitlab_services_confidence_0_85(self, tmp_path: Path) -> None:
         """GitLab CI services should also have 0.85 confidence."""
-        (tmp_path / ".gitlab-ci.yml").write_text(
-            "services:\n  - postgres:16\nstages:\n  - test\n"
-        )
+        (tmp_path / ".gitlab-ci.yml").write_text("services:\n  - postgres:16\nstages:\n  - test\n")
         techs, _ = await _parse_gitlab_ci(tmp_path)
         assert all(t.confidence == 0.85 for t in techs)
 
     async def test_gitlab_scripts_confidence_0_7(self, tmp_path: Path) -> None:
         """GitLab CI script commands should have 0.7 confidence."""
         (tmp_path / ".gitlab-ci.yml").write_text(
-            "stages:\n  - deploy\n"
-            "deploy:\n  stage: deploy\n  script:\n    - terraform apply\n"
+            "stages:\n  - deploy\ndeploy:\n  stage: deploy\n  script:\n    - terraform apply\n"
         )
         techs, _ = await _parse_gitlab_ci(tmp_path)
         assert all(t.confidence == 0.7 for t in techs)

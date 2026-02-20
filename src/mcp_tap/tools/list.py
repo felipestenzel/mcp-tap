@@ -13,24 +13,34 @@ from mcp_tap.errors import McpTapError
 from mcp_tap.models import MCPClient
 
 # Key names that indicate secrets (case-insensitive substring match)
-_SECRET_KEY_HINTS: frozenset[str] = frozenset({
-    "key", "secret", "token", "password", "passwd", "credential",
-    "api_key", "apikey", "auth", "private",
-})
+_SECRET_KEY_HINTS: frozenset[str] = frozenset(
+    {
+        "key",
+        "secret",
+        "token",
+        "password",
+        "passwd",
+        "credential",
+        "api_key",
+        "apikey",
+        "auth",
+        "private",
+    }
+)
 
 # Value prefixes known to be secrets (provider-specific API key prefixes)
 _SECRET_VALUE_PREFIXES: tuple[str, ...] = (
-    "sk-",      # OpenAI, Stripe, Anthropic
-    "ghp_",     # GitHub personal access token
-    "ghs_",     # GitHub server-to-server token
-    "gho_",     # GitHub OAuth token
+    "sk-",  # OpenAI, Stripe, Anthropic
+    "ghp_",  # GitHub personal access token
+    "ghs_",  # GitHub server-to-server token
+    "gho_",  # GitHub OAuth token
     "github_pat_",  # GitHub fine-grained PAT
-    "xoxb-",    # Slack bot token
-    "xoxp-",    # Slack user token
-    "xapp-",    # Slack app-level token
-    "glpat-",   # GitLab personal access token
-    "AKIA",     # AWS access key ID
-    "eyJ",      # JWT (base64 of {"...)
+    "xoxb-",  # Slack bot token
+    "xoxp-",  # Slack user token
+    "xapp-",  # Slack app-level token
+    "glpat-",  # GitLab personal access token
+    "AKIA",  # AWS access key ID
+    "eyJ",  # JWT (base64 of {"...)
     "bearer ",  # Bearer token
 )
 
