@@ -463,3 +463,28 @@ class SecurityReport:
     @property
     def blockers(self) -> list[SecuritySignal]:
         return [s for s in self.signals if s.risk == SecurityRisk.BLOCK]
+
+
+# ─── Stack Models ────────────────────────────────────────────
+
+
+@dataclass(frozen=True, slots=True)
+class StackServer:
+    """A single server entry in a stack definition."""
+
+    name: str
+    package_identifier: str
+    registry_type: str = "npm"
+    version: str = "latest"
+    env_vars: list[str] = field(default_factory=list)  # names only, user provides values
+
+
+@dataclass(frozen=True, slots=True)
+class Stack:
+    """A shareable MCP server profile."""
+
+    name: str
+    description: str
+    servers: list[StackServer] = field(default_factory=list)
+    version: str = "1"
+    author: str = ""

@@ -1,0 +1,16 @@
+name: web-dev
+description: "MCP servers for web development: browser automation, GitHub, and Sentry."
+version: "1"
+author: mcp-tap
+servers:
+  - name: puppeteer
+    package: "@modelcontextprotocol/server-puppeteer"
+    registry: npm
+  - name: github
+    package: "@modelcontextprotocol/server-github"
+    registry: npm
+    env_vars: [GITHUB_PERSONAL_ACCESS_TOKEN]
+  - name: sentry
+    package: "@modelcontextprotocol/server-sentry"
+    registry: npm
+    env_vars: [SENTRY_AUTH_TOKEN, SENTRY_ORG]

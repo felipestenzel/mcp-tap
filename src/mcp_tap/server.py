@@ -19,6 +19,7 @@ from mcp_tap.tools.remove import remove_server
 from mcp_tap.tools.restore import restore
 from mcp_tap.tools.scan import scan_project
 from mcp_tap.tools.search import search_servers
+from mcp_tap.tools.stack import apply_stack
 from mcp_tap.tools.test import test_connection
 from mcp_tap.tools.verify import verify
 
@@ -121,3 +122,4 @@ mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))(verify)
 mcp.tool(annotations=ToolAnnotations(destructiveHint=True))(configure_server)
 mcp.tool(annotations=ToolAnnotations(destructiveHint=True))(remove_server)
 mcp.tool(annotations=ToolAnnotations(destructiveHint=True))(restore)
+mcp.tool(annotations=ToolAnnotations(destructiveHint=True))(apply_stack)
