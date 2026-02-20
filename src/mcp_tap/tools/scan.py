@@ -11,8 +11,12 @@ from mcp_tap.config.detection import detect_clients, resolve_config_path
 from mcp_tap.config.reader import parse_servers, read_config
 from mcp_tap.errors import McpTapError
 from mcp_tap.models import MCPClient
+from mcp_tap.scanner.archetypes import detect_archetypes
 from mcp_tap.scanner.credentials import map_credentials
 from mcp_tap.scanner.detector import scan_project as _scan_project
+from mcp_tap.scanner.hints import generate_hints
+from mcp_tap.scanner.recommendations import TECHNOLOGY_SERVER_MAP
+from mcp_tap.tools._helpers import get_context
 
 
 async def scan_project(
@@ -44,7 +48,16 @@ async def scan_project(
     try:
         # Resolve client for native capability filtering
         resolved_client = _resolve_client(client)
-        profile = await _scan_project(path, client=resolved_client)
+
+        # Extract registry client from AppContext (if available)
+        registry = None
+        try:
+            app = get_context(ctx)
+            registry = app.registry
+        except (TypeError, Exception):
+            pass  # No AppContext available — static-only recommendations
+
+        profile = await _scan_project(path, client=resolved_client, registry=registry)
         installed_names = _get_installed_server_names(client)
 
         # Cross-reference recommendations with installed servers
@@ -58,6 +71,7 @@ async def scan_project(
                 {
                     **asdict(rec),
                     "registry_type": rec.registry_type.value,
+                    "source": rec.source.value,
                     "already_installed": is_installed,
                 }
             )
@@ -83,6 +97,16 @@ async def scan_project(
             for m in credential_mappings
         ]
 
+        # Detect archetypes and generate hints
+        archetypes = detect_archetypes(profile.technologies)
+        mapped_names = set(TECHNOLOGY_SERVER_MAP.keys())
+        hints = generate_hints(
+            profile.technologies,
+            profile.env_var_names,
+            mapped_names,
+            archetypes,
+        )
+
         summary = _build_summary(
             project_path=profile.path,
             tech_count=len(profile.technologies),
@@ -91,6 +115,9 @@ async def scan_project(
             env_var_count=len(profile.env_var_names),
         )
 
+        # Collect unique search queries from all hints
+        suggested_searches = sorted({q for h in hints for q in h.search_queries})
+
         return {
             "path": profile.path,
             "client": resolved_client.value if resolved_client else "unknown",
@@ -98,13 +125,24 @@ async def scan_project(
                 "BEFORE recommending any server, compare it against YOUR OWN "
                 "native tools. If you already have a tool that does the same thing, "
                 "only recommend the MCP if it adds significant NEW capability. "
-                "Explain what it adds that you cannot do natively."
+                "Explain what it adds that you cannot do natively. "
+                "Also check 'suggested_searches' for additional MCP servers "
+                "to explore via search_servers."
             ),
             "detected_technologies": technologies,
             "env_vars_found": profile.env_var_names,
             "recommendations": recommendations,
             "credential_mappings": cred_dicts,
             "already_installed": already_installed,
+            "discovery_hints": [
+                {
+                    **asdict(h),
+                    "hint_type": h.hint_type.value,
+                }
+                for h in hints
+            ],
+            "archetypes": [asdict(a) for a in archetypes],
+            "suggested_searches": suggested_searches,
             "summary": summary,
         }
 

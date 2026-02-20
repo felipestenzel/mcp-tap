@@ -1,16 +1,22 @@
-"""Static mapping from detected technologies to MCP server recommendations."""
+"""Technology-to-server recommendations: static map + dynamic registry bridge."""
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from mcp_tap.models import (
     MCPClient,
     ProjectProfile,
+    RecommendationSource,
     RegistryType,
     ServerRecommendation,
 )
+
+if TYPE_CHECKING:
+    from mcp_tap.registry.base import RegistryClientPort
 
 logger = logging.getLogger(__name__)
 
@@ -138,6 +144,159 @@ TECHNOLOGY_SERVER_MAP: dict[str, list[ServerRecommendation]] = {
             priority="medium",
         ),
     ],
+    "sentry": [
+        ServerRecommendation(
+            server_name="sentry-mcp",
+            package_identifier="@sentry/mcp-server-sentry",
+            registry_type=RegistryType.PYPI,
+            reason="Query Sentry issues, events, and project data",
+            priority="medium",
+        ),
+    ],
+    "docker": [
+        ServerRecommendation(
+            server_name="docker-mcp",
+            package_identifier="@modelcontextprotocol/server-docker",
+            registry_type=RegistryType.NPM,
+            reason="Manage Docker containers and images",
+            priority="medium",
+        ),
+    ],
+    "terraform": [
+        ServerRecommendation(
+            server_name="terraform-mcp",
+            package_identifier="terraform-mcp-server",
+            registry_type=RegistryType.NPM,
+            reason="Infrastructure as Code with Terraform — plan and apply changes",
+            priority="medium",
+        ),
+    ],
+    "notion": [
+        ServerRecommendation(
+            server_name="notion-mcp",
+            package_identifier="@notionhq/notion-mcp-server",
+            registry_type=RegistryType.NPM,
+            reason="Access Notion databases, pages, and workspaces",
+            priority="medium",
+        ),
+    ],
+    "linear": [
+        ServerRecommendation(
+            server_name="linear-mcp",
+            package_identifier="mcp-linear",
+            registry_type=RegistryType.NPM,
+            reason="Manage Linear issues, projects, and cycles",
+            priority="medium",
+        ),
+    ],
+    "supabase": [
+        ServerRecommendation(
+            server_name="supabase-mcp",
+            package_identifier="@supabase/mcp-server-supabase",
+            registry_type=RegistryType.NPM,
+            reason="Query Supabase database and manage project resources",
+            priority="high",
+        ),
+    ],
+    "stripe": [
+        ServerRecommendation(
+            server_name="stripe-mcp",
+            package_identifier="@stripe/mcp",
+            registry_type=RegistryType.NPM,
+            reason="Manage Stripe payments, customers, and subscriptions",
+            priority="high",
+        ),
+    ],
+    "gcp": [
+        ServerRecommendation(
+            server_name="gcp-mcp",
+            package_identifier="@google-cloud/mcp-server",
+            registry_type=RegistryType.NPM,
+            reason="Google Cloud Platform services detected — manage cloud resources",
+            priority="medium",
+        ),
+    ],
+    "azure": [
+        ServerRecommendation(
+            server_name="azure-mcp",
+            package_identifier="azure-mcp-server",
+            registry_type=RegistryType.NPM,
+            reason="Microsoft Azure services detected — manage cloud resources",
+            priority="medium",
+        ),
+    ],
+    "cloudflare": [
+        ServerRecommendation(
+            server_name="cloudflare-mcp",
+            package_identifier="@cloudflare/mcp-server-cloudflare",
+            registry_type=RegistryType.NPM,
+            reason="Manage Cloudflare Workers, DNS, and infrastructure",
+            priority="medium",
+        ),
+    ],
+    "firebase": [
+        ServerRecommendation(
+            server_name="firebase-mcp",
+            package_identifier="firebase-mcp-server",
+            registry_type=RegistryType.NPM,
+            reason="Manage Firebase projects, auth, and Firestore",
+            priority="medium",
+        ),
+    ],
+    "datadog": [
+        ServerRecommendation(
+            server_name="datadog-mcp",
+            package_identifier="datadog-mcp-server",
+            registry_type=RegistryType.NPM,
+            reason="Query Datadog metrics, monitors, and dashboards",
+            priority="medium",
+        ),
+    ],
+    "grafana": [
+        ServerRecommendation(
+            server_name="grafana-mcp",
+            package_identifier="grafana-mcp-server",
+            registry_type=RegistryType.NPM,
+            reason="Query Grafana dashboards and data sources",
+            priority="low",
+        ),
+    ],
+    "kafka": [
+        ServerRecommendation(
+            server_name="kafka-mcp",
+            package_identifier="kafka-mcp-server",
+            registry_type=RegistryType.NPM,
+            reason="Manage Kafka topics, consumers, and messages",
+            priority="medium",
+        ),
+    ],
+    "clickhouse": [
+        ServerRecommendation(
+            server_name="clickhouse-mcp",
+            package_identifier="clickhouse-mcp-server",
+            registry_type=RegistryType.NPM,
+            reason="Query ClickHouse analytics database",
+            priority="medium",
+        ),
+    ],
+    "openai": [
+        ServerRecommendation(
+            server_name="openai-mcp",
+            package_identifier="mcp-openai",
+            registry_type=RegistryType.NPM,
+            reason="OpenAI API integration detected — manage models and completions",
+            priority="low",
+        ),
+    ],
+    "anthropic": [
+        ServerRecommendation(
+            server_name="anthropic-mcp",
+            package_identifier="mcp-anthropic",
+            registry_type=RegistryType.NPM,
+            reason="Anthropic API integration detected",
+            priority="low",
+        ),
+    ],
 }
 
 
@@ -213,12 +372,18 @@ def _is_redundant(
     return None
 
 
-def recommend_servers(
+async def recommend_servers(
     profile: ProjectProfile,
     *,
     client: MCPClient | None = None,
+    registry: RegistryClientPort | None = None,
 ) -> list[ServerRecommendation]:
     """Map detected technologies to MCP server recommendations.
+
+    First builds recommendations from the curated TECHNOLOGY_SERVER_MAP.
+    Then, for any technologies that have no curated mapping, queries the
+    MCP Registry API (if a registry client is provided) to discover
+    dynamic recommendations.
 
     When client is provided, filters out servers that are redundant with
     the client's native capabilities. For example, Claude Code already
@@ -228,6 +393,9 @@ def recommend_servers(
         profile: A partially-built ProjectProfile with technologies populated.
         client: The MCP client where servers will be installed. When set,
             recommendations redundant with native capabilities are removed.
+        registry: Optional registry client for dynamic server discovery.
+            When provided, unmapped technologies trigger a registry search.
+            On any error or timeout, silently falls back to static-only.
 
     Returns:
         Deduplicated list of ServerRecommendation sorted by priority (high first).
@@ -238,9 +406,13 @@ def recommend_servers(
 
     # Collect technology names (lowered) for lookup
     tech_names = {t.name.lower() for t in profile.technologies}
+    unmapped_techs: list[str] = []
 
     for tech_name in tech_names:
         recommendations = TECHNOLOGY_SERVER_MAP.get(tech_name, [])
+        if not recommendations:
+            unmapped_techs.append(tech_name)
+            continue
         for rec in recommendations:
             if rec.package_identifier in seen_packages:
                 continue
@@ -251,11 +423,73 @@ def recommend_servers(
                 continue
             results.append(rec)
 
+    # Dynamic registry lookup for unmapped technologies
+    if registry and unmapped_techs:
+        dynamic = await _search_registry(registry, unmapped_techs, seen_packages, capabilities)
+        results.extend(dynamic)
+
     # Always recommend filesystem server for any project — unless native
     _add_filesystem_recommendation(results, seen_packages, capabilities)
 
     # Sort by priority: high → medium → low
     results.sort(key=lambda r: _PRIORITY_ORDER.get(r.priority, 99))
+
+    return results
+
+
+_REGISTRY_TIMEOUT_SECONDS = 5
+# Skip technologies that are too generic for meaningful registry search
+_SKIP_REGISTRY_SEARCH = {"python", "node.js", "ruby", "go", "rust", "make"}
+
+
+async def _search_registry(
+    registry: RegistryClientPort,
+    tech_names: list[str],
+    seen_packages: set[str],
+    capabilities: list[_NativeCapability],
+) -> list[ServerRecommendation]:
+    """Search the MCP Registry for servers matching unmapped technologies.
+
+    Each search has a per-technology timeout. On any error or timeout,
+    that technology is silently skipped — the scan still returns useful
+    static results.
+    """
+    results: list[ServerRecommendation] = []
+
+    for tech_name in tech_names:
+        if tech_name in _SKIP_REGISTRY_SEARCH:
+            continue
+
+        try:
+            servers = await asyncio.wait_for(
+                registry.search(tech_name, limit=3),
+                timeout=_REGISTRY_TIMEOUT_SECONDS,
+            )
+        except (TimeoutError, Exception):
+            logger.debug("Registry search for '%s' failed or timed out", tech_name)
+            continue
+
+        for server in servers:
+            if not server.packages:
+                continue
+            pkg = server.packages[0]
+            if pkg.identifier in seen_packages:
+                continue
+            seen_packages.add(pkg.identifier)
+
+            rec = ServerRecommendation(
+                server_name=server.name.replace("/", "-").replace(".", "-"),
+                package_identifier=pkg.identifier,
+                registry_type=pkg.registry_type,
+                reason=f"Found in MCP Registry for '{tech_name}': {server.description[:100]}",
+                priority="low",
+                source=RecommendationSource.REGISTRY,
+                confidence=0.6,
+            )
+
+            if _is_redundant(rec.server_name, rec.package_identifier, capabilities):
+                continue
+            results.append(rec)
 
     return results
 
