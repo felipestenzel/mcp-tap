@@ -94,6 +94,17 @@ def _parse_github_url(repository_url: str) -> tuple[str, str] | None:
 # ─── Main fetch function ──────────────────────────────────
 
 
+class DefaultGitHubMetadata:
+    """Adapter for GitHubMetadataPort — holds httpx client."""
+
+    def __init__(self, http_client: httpx.AsyncClient) -> None:
+        self._http = http_client
+
+    async def fetch_repo_metadata(self, repository_url: str) -> MaturitySignals | None:
+        """Fetch repository metadata from GitHub's public API."""
+        return await fetch_repo_metadata(repository_url, self._http)
+
+
 async def fetch_repo_metadata(
     repository_url: str,
     http_client: httpx.AsyncClient,

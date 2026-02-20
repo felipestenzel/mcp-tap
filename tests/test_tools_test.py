@@ -12,13 +12,25 @@ from mcp_tap.models import (
     MCPClient,
     ServerConfig,
 )
+from mcp_tap.server import AppContext
 from mcp_tap.tools.test import test_connection as _tool_test_connection
 
 # --- Helpers ---------------------------------------------------------------
 
 
-def _make_ctx() -> MagicMock:
+def _make_ctx(
+    connection_tester: AsyncMock | None = None,
+    healing: AsyncMock | None = None,
+) -> MagicMock:
+    app = MagicMock(spec=AppContext)
+    app.connection_tester = connection_tester or MagicMock()
+    app.connection_tester.test_server_connection = (
+        connection_tester.test_server_connection if connection_tester else AsyncMock()
+    )
+    app.healing = healing or MagicMock()
+    app.healing.heal_and_retry = healing.heal_and_retry if healing else AsyncMock()
     ctx = MagicMock()
+    ctx.request_context.lifespan_context = app
     ctx.info = AsyncMock()
     ctx.error = AsyncMock()
     return ctx
@@ -59,36 +71,38 @@ def _failed_result(name: str = "test-server") -> ConnectionTestResult:
 
 
 class TestTestConnection:
-    @patch("mcp_tap.tools.test.test_server_connection", new_callable=AsyncMock)
     @patch("mcp_tap.tools.test.parse_servers")
     @patch("mcp_tap.tools.test.read_config")
     @patch("mcp_tap.tools.test.resolve_config_path")
-    async def test_happy_path_explicit_client(
-        self, mock_resolve, mock_read, mock_parse, mock_tester
-    ):
+    async def test_happy_path_explicit_client(self, mock_resolve, mock_read, mock_parse):
         mock_resolve.return_value = _fake_location()
         mock_read.return_value = {"mcpServers": {}}
         mock_parse.return_value = [_installed_server("my-server")]
-        mock_tester.return_value = _ok_result("my-server")
 
-        result = await _tool_test_connection("my-server", _make_ctx(), client="claude_code")
+        ctx = _make_ctx()
+        app = ctx.request_context.lifespan_context
+        app.connection_tester.test_server_connection.return_value = _ok_result("my-server")
+
+        result = await _tool_test_connection("my-server", ctx, client="claude_code")
 
         assert result["success"] is True
         assert result["server_name"] == "my-server"
         assert result["tools_discovered"] == ["tool_a", "tool_b"]
         mock_resolve.assert_called_once_with(MCPClient("claude_code"))
 
-    @patch("mcp_tap.tools.test.test_server_connection", new_callable=AsyncMock)
     @patch("mcp_tap.tools.test.parse_servers")
     @patch("mcp_tap.tools.test.read_config")
     @patch("mcp_tap.tools.test.detect_clients")
-    async def test_happy_path_auto_detect(self, mock_detect, mock_read, mock_parse, mock_tester):
+    async def test_happy_path_auto_detect(self, mock_detect, mock_read, mock_parse):
         mock_detect.return_value = [_fake_location()]
         mock_read.return_value = {"mcpServers": {}}
         mock_parse.return_value = [_installed_server()]
-        mock_tester.return_value = _ok_result()
 
-        result = await _tool_test_connection("test-server", _make_ctx())
+        ctx = _make_ctx()
+        app = ctx.request_context.lifespan_context
+        app.connection_tester.test_server_connection.return_value = _ok_result()
+
+        result = await _tool_test_connection("test-server", ctx)
 
         assert result["success"] is True
 
@@ -114,42 +128,43 @@ class TestTestConnection:
         assert result["success"] is False
         assert "not found" in result["error"].lower()
 
-    @patch("mcp_tap.tools.test.test_server_connection", new_callable=AsyncMock)
     @patch("mcp_tap.tools.test.parse_servers")
     @patch("mcp_tap.tools.test.read_config")
     @patch("mcp_tap.tools.test.resolve_config_path")
-    async def test_connection_failure(self, mock_resolve, mock_read, mock_parse, mock_tester):
+    async def test_connection_failure(self, mock_resolve, mock_read, mock_parse):
         mock_resolve.return_value = _fake_location()
         mock_read.return_value = {"mcpServers": {}}
         mock_parse.return_value = [_installed_server()]
-        mock_tester.return_value = _failed_result()
 
-        result = await _tool_test_connection("test-server", _make_ctx(), client="claude_code")
+        ctx = _make_ctx()
+        app = ctx.request_context.lifespan_context
+        app.connection_tester.test_server_connection.return_value = _failed_result()
+
+        result = await _tool_test_connection("test-server", ctx, client="claude_code")
 
         assert result["success"] is False
         assert result["error"] == "Connection refused"
 
-    @patch("mcp_tap.tools.test.test_server_connection", new_callable=AsyncMock)
     @patch("mcp_tap.tools.test.parse_servers")
     @patch("mcp_tap.tools.test.read_config")
     @patch("mcp_tap.tools.test.resolve_config_path")
-    async def test_timeout_clamped_to_range(self, mock_resolve, mock_read, mock_parse, mock_tester):
+    async def test_timeout_clamped_to_range(self, mock_resolve, mock_read, mock_parse):
         mock_resolve.return_value = _fake_location()
         mock_read.return_value = {"mcpServers": {}}
         mock_parse.return_value = [_installed_server()]
+
+        ctx = _make_ctx()
+        app = ctx.request_context.lifespan_context
+        mock_tester = app.connection_tester.test_server_connection
         mock_tester.return_value = _ok_result()
 
         # timeout_seconds=1 should be clamped to min 5
-        await _tool_test_connection(
-            "test-server", _make_ctx(), client="claude_code", timeout_seconds=1
-        )
+        await _tool_test_connection("test-server", ctx, client="claude_code", timeout_seconds=1)
         _, kwargs = mock_tester.call_args
         assert kwargs["timeout_seconds"] == 5
 
         # timeout_seconds=100 should be clamped to max 60
-        await _tool_test_connection(
-            "test-server", _make_ctx(), client="claude_code", timeout_seconds=100
-        )
+        await _tool_test_connection("test-server", ctx, client="claude_code", timeout_seconds=100)
         _, kwargs = mock_tester.call_args
         assert kwargs["timeout_seconds"] == 60
 

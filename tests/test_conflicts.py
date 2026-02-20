@@ -35,8 +35,15 @@ def _unhealthy(name: str, tools: list[str] | None = None) -> ServerHealth:
     )
 
 
-def _make_ctx() -> MagicMock:
+def _make_ctx(*, connection_tester: AsyncMock | None = None) -> MagicMock:
+    from mcp_tap.server import AppContext
+
+    app = MagicMock(spec=AppContext)
+    app.connection_tester = connection_tester or AsyncMock()
+    app.healing = AsyncMock()
+
     ctx = MagicMock()
+    ctx.request_context.lifespan_context = app
     ctx.info = AsyncMock()
     ctx.error = AsyncMock()
     return ctx
@@ -210,7 +217,6 @@ class TestToolConflictModel:
 class TestHealthReportIncludesConflicts:
     """Tests that check_health adds tool_conflicts to the result dict."""
 
-    @patch("mcp_tap.tools.health.test_server_connection")
     @patch("mcp_tap.tools.health.parse_servers")
     @patch("mcp_tap.tools.health.read_config", return_value={"mcpServers": {}})
     @patch("mcp_tap.tools.health.detect_clients")
@@ -219,7 +225,6 @@ class TestHealthReportIncludesConflicts:
         mock_detect: MagicMock,
         _mock_read: MagicMock,
         mock_parse: MagicMock,
-        mock_test_conn: AsyncMock,
     ):
         """Should include tool_conflicts when two servers share a tool."""
         from mcp_tap.models import ConnectionTestResult
@@ -230,20 +235,24 @@ class TestHealthReportIncludesConflicts:
             _installed_server("postgres"),
             _installed_server("sqlite"),
         ]
-        mock_test_conn.side_effect = [
-            ConnectionTestResult(
-                success=True,
-                server_name="postgres",
-                tools_discovered=["read_query", "write_query"],
-            ),
-            ConnectionTestResult(
-                success=True,
-                server_name="sqlite",
-                tools_discovered=["read_query", "list_tables"],
-            ),
-        ]
 
-        ctx = _make_ctx()
+        connection_tester = AsyncMock()
+        connection_tester.test_server_connection = AsyncMock(
+            side_effect=[
+                ConnectionTestResult(
+                    success=True,
+                    server_name="postgres",
+                    tools_discovered=["read_query", "write_query"],
+                ),
+                ConnectionTestResult(
+                    success=True,
+                    server_name="sqlite",
+                    tools_discovered=["read_query", "list_tables"],
+                ),
+            ]
+        )
+
+        ctx = _make_ctx(connection_tester=connection_tester)
         result = await check_health(ctx)
 
         assert "tool_conflicts" in result
@@ -254,7 +263,6 @@ class TestHealthReportIncludesConflicts:
             "sqlite",
         ]
 
-    @patch("mcp_tap.tools.health.test_server_connection")
     @patch("mcp_tap.tools.health.parse_servers")
     @patch("mcp_tap.tools.health.read_config", return_value={"mcpServers": {}})
     @patch("mcp_tap.tools.health.detect_clients")
@@ -263,7 +271,6 @@ class TestHealthReportIncludesConflicts:
         mock_detect: MagicMock,
         _mock_read: MagicMock,
         mock_parse: MagicMock,
-        mock_test_conn: AsyncMock,
     ):
         """Should NOT include tool_conflicts key when there are no conflicts."""
         from mcp_tap.models import ConnectionTestResult
@@ -274,20 +281,24 @@ class TestHealthReportIncludesConflicts:
             _installed_server("postgres"),
             _installed_server("github"),
         ]
-        mock_test_conn.side_effect = [
-            ConnectionTestResult(
-                success=True,
-                server_name="postgres",
-                tools_discovered=["read_query"],
-            ),
-            ConnectionTestResult(
-                success=True,
-                server_name="github",
-                tools_discovered=["create_issue"],
-            ),
-        ]
 
-        ctx = _make_ctx()
+        connection_tester = AsyncMock()
+        connection_tester.test_server_connection = AsyncMock(
+            side_effect=[
+                ConnectionTestResult(
+                    success=True,
+                    server_name="postgres",
+                    tools_discovered=["read_query"],
+                ),
+                ConnectionTestResult(
+                    success=True,
+                    server_name="github",
+                    tools_discovered=["create_issue"],
+                ),
+            ]
+        )
+
+        ctx = _make_ctx(connection_tester=connection_tester)
         result = await check_health(ctx)
 
         assert "tool_conflicts" not in result

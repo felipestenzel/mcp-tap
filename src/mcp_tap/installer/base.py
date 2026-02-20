@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from mcp_tap.models import InstallResult
+from mcp_tap.models import InstallResult, RegistryType
 
 
 class PackageInstaller(Protocol):
@@ -24,4 +24,12 @@ class PackageInstaller(Protocol):
 
     def build_server_command(self, identifier: str) -> tuple[str, list[str]]:
         """Return (command, args) for running this package as an MCP server."""
+        ...
+
+
+class InstallerResolverPort(Protocol):
+    """Port for resolving the appropriate package installer by registry type."""
+
+    async def resolve_installer(self, registry_type: RegistryType | str) -> PackageInstaller:
+        """Resolve and return a ready-to-use installer for the given registry type."""
         ...

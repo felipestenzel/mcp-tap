@@ -43,6 +43,17 @@ def _gitlab_raw_url(repo_url: str) -> str:
     return ""
 
 
+class DefaultReadmeFetcher:
+    """Adapter for ReadmeFetcherPort — holds httpx client."""
+
+    def __init__(self, http_client: httpx.AsyncClient) -> None:
+        self._http = http_client
+
+    async def fetch_readme(self, repository_url: str) -> str | None:
+        """Fetch README.md from a repository URL."""
+        return await fetch_readme(repository_url, self._http)
+
+
 async def fetch_readme(
     repository_url: str,
     http_client: httpx.AsyncClient,

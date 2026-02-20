@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable, Coroutine
+from typing import Any
 
+from mcp_tap.connection.base import ConnectionTesterPort
 from mcp_tap.connection.tester import test_server_connection
 from mcp_tap.healing.classifier import classify_error
 from mcp_tap.healing.fixer import generate_fix
@@ -19,16 +22,20 @@ logger = logging.getLogger(__name__)
 # Escalating timeouts for retry attempts
 _TIMEOUT_ESCALATION = (15, 30, 60)
 
+# Type alias for a connection tester callable
+TesterFn = Callable[..., Coroutine[Any, Any, ConnectionTestResult]]
 
-async def heal_and_retry(
+
+async def _heal_loop(
     server_name: str,
     server_config: ServerConfig,
     error: ConnectionTestResult,
     *,
+    tester_fn: TesterFn,
     max_attempts: int = 2,
     timeout_seconds: int = 15,
 ) -> HealingResult:
-    """Diagnose an error, apply a fix, and retry validation.
+    """Core healing loop — injectable tester function breaks adapter coupling.
 
     Loops up to max_attempts times. Each iteration:
     1. Classify the error into a structured diagnosis
@@ -37,17 +44,6 @@ async def heal_and_retry(
     4. If auto-fixable, apply the fix and re-validate
     5. If validation passes, return success
     6. If validation fails again, loop with the new error
-
-    Args:
-        server_name: Name of the server being healed.
-        server_config: Current server configuration.
-        error: The ConnectionTestResult that triggered healing.
-        max_attempts: Maximum number of healing iterations.
-        timeout_seconds: Base timeout for re-validation.
-
-    Returns:
-        HealingResult with fixed status, all attempts, and guidance
-        if user action is needed.
     """
     attempts: list[HealingAttempt] = []
     current_config = server_config
@@ -97,7 +93,7 @@ async def heal_and_retry(
         timeout = _resolve_timeout(diagnosis.category.value, attempt_num, timeout_seconds)
 
         # 5. Re-validate
-        result = await test_server_connection(
+        result = await tester_fn(
             server_name,
             current_config,
             timeout_seconds=timeout,
@@ -139,6 +135,65 @@ async def heal_and_retry(
             f"Last error: {current_error.error}"
         ),
     )
+
+
+async def heal_and_retry(
+    server_name: str,
+    server_config: ServerConfig,
+    error: ConnectionTestResult,
+    *,
+    max_attempts: int = 2,
+    timeout_seconds: int = 15,
+) -> HealingResult:
+    """Diagnose an error, apply a fix, and retry validation.
+
+    Module-level convenience function that uses the default connection tester.
+
+    Args:
+        server_name: Name of the server being healed.
+        server_config: Current server configuration.
+        error: The ConnectionTestResult that triggered healing.
+        max_attempts: Maximum number of healing iterations.
+        timeout_seconds: Base timeout for re-validation.
+
+    Returns:
+        HealingResult with fixed status, all attempts, and guidance
+        if user action is needed.
+    """
+    return await _heal_loop(
+        server_name,
+        server_config,
+        error,
+        tester_fn=test_server_connection,
+        max_attempts=max_attempts,
+        timeout_seconds=timeout_seconds,
+    )
+
+
+class DefaultHealingOrchestrator:
+    """Adapter for HealingOrchestratorPort — breaks connection tester coupling."""
+
+    def __init__(self, connection_tester: ConnectionTesterPort) -> None:
+        self._tester = connection_tester
+
+    async def heal_and_retry(
+        self,
+        server_name: str,
+        server_config: ServerConfig,
+        error: ConnectionTestResult,
+        *,
+        max_attempts: int = 2,
+        timeout_seconds: int = 15,
+    ) -> HealingResult:
+        """Diagnose an error, apply a fix, and retry validation."""
+        return await _heal_loop(
+            server_name,
+            server_config,
+            error,
+            tester_fn=self._tester.test_server_connection,
+            max_attempts=max_attempts,
+            timeout_seconds=timeout_seconds,
+        )
 
 
 def _resolve_timeout(category: str, attempt_number: int, base_timeout: int) -> int:

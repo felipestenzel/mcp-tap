@@ -1182,6 +1182,7 @@ class TestTryHealForwardsOriginalError:
         which means classify_error receives the original error without
         spawning a redundant test_server_connection call first.
         """
+        from mcp_tap.healing.retry import heal_and_retry
         from mcp_tap.tools.configure import _try_heal
 
         original_error = _failed_connection("Command not found: npx")
@@ -1199,7 +1200,11 @@ class TestTryHealForwardsOriginalError:
         )
         mock_test_conn.return_value = _ok_connection()
 
-        await _try_heal("test-server", config, original_error, ctx)
+        # Create a healing adapter that uses the (patched) free function
+        healing = MagicMock()
+        healing.heal_and_retry = heal_and_retry
+
+        await _try_heal("test-server", config, original_error, ctx, healing)
 
         # classify_error should have been called with the original error
         # (not a freshly-spawned test result)

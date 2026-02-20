@@ -15,13 +15,24 @@ from mcp_tap.models import (
     MCPClient,
     ServerConfig,
 )
+from mcp_tap.server import AppContext
 from mcp_tap.tools.restore import _LOCKFILE_NAME, _build_dry_run_result, _restore_server, restore
 
 # --- Helpers ---------------------------------------------------------------
 
 
-def _make_ctx() -> MagicMock:
+def _make_ctx(
+    *,
+    installer_resolver: AsyncMock | None = None,
+    connection_tester: AsyncMock | None = None,
+) -> MagicMock:
+    """Build a mock Context with AppContext injected into lifespan_context."""
+    app = MagicMock(spec=AppContext)
+    app.installer_resolver = installer_resolver or AsyncMock()
+    app.connection_tester = connection_tester or AsyncMock()
+
     ctx = MagicMock()
+    ctx.request_context.lifespan_context = app
     ctx.info = AsyncMock()
     ctx.error = AsyncMock()
     return ctx
@@ -96,12 +107,10 @@ def _mock_installer(
     return installer
 
 
-# Consistent patch targets (all in the restore module namespace)
+# Consistent patch targets (Tier A only — kept as direct imports)
 _P_READ_LOCKFILE = "mcp_tap.tools.restore.read_lockfile"
 _P_RESOLVE_LOCATIONS = "mcp_tap.tools.restore.resolve_config_locations"
-_P_RESOLVE_INSTALLER = "mcp_tap.tools.restore.resolve_installer"
 _P_WRITE_CONFIG = "mcp_tap.tools.restore.write_server_config"
-_P_TEST_CONNECTION = "mcp_tap.tools.restore.test_server_connection"
 
 
 # === No lockfile found ======================================================
@@ -207,10 +216,12 @@ class TestNoClientDetected:
     ) -> None:
         """Should not attempt any server installs."""
         mock_read.return_value = _lockfile_with_servers(pg=_locked_server())
-        ctx = _make_ctx()
-        with patch(_P_RESOLVE_INSTALLER) as mock_installer:
-            await restore("/my/project", ctx)
-            mock_installer.assert_not_called()
+        installer_resolver = AsyncMock()
+        ctx = _make_ctx(installer_resolver=installer_resolver)
+
+        await restore("/my/project", ctx)
+
+        installer_resolver.resolve_installer.assert_not_called()
 
 
 # === Dry run ================================================================
@@ -228,11 +239,13 @@ class TestDryRun:
         locked = _locked_server(package_identifier="@mcp/postgres", version="2.1.0")
         mock_read.return_value = _lockfile_with_servers(postgres=locked)
         mock_resolve.return_value = [_fake_location()]
-        ctx = _make_ctx()
 
-        with patch(_P_RESOLVE_INSTALLER) as mock_installer:
-            result = await restore("/my/project", ctx, dry_run=True)
-            mock_installer.assert_not_called()
+        installer_resolver = AsyncMock()
+        ctx = _make_ctx(installer_resolver=installer_resolver)
+
+        result = await restore("/my/project", ctx, dry_run=True)
+
+        installer_resolver.resolve_installer.assert_not_called()
 
         assert result["success"] is True
         assert result["dry_run"] is True
@@ -321,26 +334,31 @@ class TestDryRun:
 class TestSuccessfulRestore:
     """Tests for successful server restoration."""
 
-    @patch(_P_TEST_CONNECTION)
     @patch(_P_WRITE_CONFIG)
-    @patch(_P_RESOLVE_INSTALLER)
     @patch(_P_RESOLVE_LOCATIONS)
     @patch(_P_READ_LOCKFILE)
     async def test_single_server_success(
         self,
         mock_read: MagicMock,
         mock_resolve_loc: MagicMock,
-        mock_resolve_inst: MagicMock,
         mock_write: MagicMock,
-        mock_test: MagicMock,
     ) -> None:
         """Should restore a single server end-to-end."""
         mock_read.return_value = _lockfile_with_servers(pg=_locked_server())
         mock_resolve_loc.return_value = [_fake_location()]
-        mock_resolve_inst.return_value = _mock_installer()
-        mock_test.return_value = _connection_result(tools=["query", "mutate"])
-        ctx = _make_ctx()
 
+        installer_resolver = AsyncMock()
+        installer_resolver.resolve_installer = AsyncMock(return_value=_mock_installer())
+
+        connection_tester = AsyncMock()
+        connection_tester.test_server_connection = AsyncMock(
+            return_value=_connection_result(tools=["query", "mutate"])
+        )
+
+        ctx = _make_ctx(
+            installer_resolver=installer_resolver,
+            connection_tester=connection_tester,
+        )
         result = await restore("/my/project", ctx)
 
         assert result["success"] is True
@@ -352,44 +370,43 @@ class TestSuccessfulRestore:
         assert result["servers"][0]["validation_passed"] is True
         assert result["servers"][0]["tools_discovered"] == ["query", "mutate"]
 
-    @patch(_P_TEST_CONNECTION)
     @patch(_P_WRITE_CONFIG)
-    @patch(_P_RESOLVE_INSTALLER)
     @patch(_P_RESOLVE_LOCATIONS)
     @patch(_P_READ_LOCKFILE)
     async def test_calls_installer_with_correct_args(
         self,
         mock_read: MagicMock,
         mock_resolve_loc: MagicMock,
-        mock_resolve_inst: MagicMock,
         mock_write: MagicMock,
-        mock_test: MagicMock,
     ) -> None:
         """Should pass package_identifier and version to installer.install."""
         locked = _locked_server(package_identifier="@mcp/pg", version="3.2.1")
         mock_read.return_value = _lockfile_with_servers(pg=locked)
         mock_resolve_loc.return_value = [_fake_location()]
         installer = _mock_installer()
-        mock_resolve_inst.return_value = installer
-        mock_test.return_value = _connection_result()
-        ctx = _make_ctx()
 
+        installer_resolver = AsyncMock()
+        installer_resolver.resolve_installer = AsyncMock(return_value=installer)
+
+        connection_tester = AsyncMock()
+        connection_tester.test_server_connection = AsyncMock(return_value=_connection_result())
+
+        ctx = _make_ctx(
+            installer_resolver=installer_resolver,
+            connection_tester=connection_tester,
+        )
         await restore("/my/project", ctx)
 
         installer.install.assert_awaited_once_with("@mcp/pg", "3.2.1")
 
-    @patch(_P_TEST_CONNECTION)
     @patch(_P_WRITE_CONFIG)
-    @patch(_P_RESOLVE_INSTALLER)
     @patch(_P_RESOLVE_LOCATIONS)
     @patch(_P_READ_LOCKFILE)
     async def test_writes_config_to_each_location(
         self,
         mock_read: MagicMock,
         mock_resolve_loc: MagicMock,
-        mock_resolve_inst: MagicMock,
         mock_write: MagicMock,
-        mock_test: MagicMock,
     ) -> None:
         """Should write server config to every resolved config location."""
         mock_read.return_value = _lockfile_with_servers(pg=_locked_server())
@@ -398,10 +415,17 @@ class TestSuccessfulRestore:
             _fake_location(MCPClient.CURSOR, "/path/b.json"),
         ]
         mock_resolve_loc.return_value = locations
-        mock_resolve_inst.return_value = _mock_installer()
-        mock_test.return_value = _connection_result()
-        ctx = _make_ctx()
 
+        installer_resolver = AsyncMock()
+        installer_resolver.resolve_installer = AsyncMock(return_value=_mock_installer())
+
+        connection_tester = AsyncMock()
+        connection_tester.test_server_connection = AsyncMock(return_value=_connection_result())
+
+        ctx = _make_ctx(
+            installer_resolver=installer_resolver,
+            connection_tester=connection_tester,
+        )
         await restore("/my/project", ctx)
 
         assert mock_write.call_count == 2
@@ -409,18 +433,14 @@ class TestSuccessfulRestore:
         assert "/path/a.json" in written_paths
         assert "/path/b.json" in written_paths
 
-    @patch(_P_TEST_CONNECTION)
     @patch(_P_WRITE_CONFIG)
-    @patch(_P_RESOLVE_INSTALLER)
     @patch(_P_RESOLVE_LOCATIONS)
     @patch(_P_READ_LOCKFILE)
     async def test_config_written_to_in_server_result(
         self,
         mock_read: MagicMock,
         mock_resolve_loc: MagicMock,
-        mock_resolve_inst: MagicMock,
         mock_write: MagicMock,
-        mock_test: MagicMock,
     ) -> None:
         """Should report which config files were written in the per-server result."""
         mock_read.return_value = _lockfile_with_servers(pg=_locked_server())
@@ -428,28 +448,31 @@ class TestSuccessfulRestore:
             _fake_location(MCPClient.CLAUDE_CODE, "/path/a.json"),
             _fake_location(MCPClient.CURSOR, "/path/b.json"),
         ]
-        mock_resolve_inst.return_value = _mock_installer()
-        mock_test.return_value = _connection_result()
-        ctx = _make_ctx()
 
+        installer_resolver = AsyncMock()
+        installer_resolver.resolve_installer = AsyncMock(return_value=_mock_installer())
+
+        connection_tester = AsyncMock()
+        connection_tester.test_server_connection = AsyncMock(return_value=_connection_result())
+
+        ctx = _make_ctx(
+            installer_resolver=installer_resolver,
+            connection_tester=connection_tester,
+        )
         result = await restore("/my/project", ctx)
 
         server_result = result["servers"][0]
         assert "/path/a.json" in server_result["config_written_to"]
         assert "/path/b.json" in server_result["config_written_to"]
 
-    @patch(_P_TEST_CONNECTION)
     @patch(_P_WRITE_CONFIG)
-    @patch(_P_RESOLVE_INSTALLER)
     @patch(_P_RESOLVE_LOCATIONS)
     @patch(_P_READ_LOCKFILE)
     async def test_includes_clients_in_output(
         self,
         mock_read: MagicMock,
         mock_resolve_loc: MagicMock,
-        mock_resolve_inst: MagicMock,
         mock_write: MagicMock,
-        mock_test: MagicMock,
     ) -> None:
         """Should list target client names in the result."""
         mock_read.return_value = _lockfile_with_servers(pg=_locked_server())
@@ -457,35 +480,45 @@ class TestSuccessfulRestore:
             _fake_location(MCPClient.CLAUDE_CODE),
             _fake_location(MCPClient.CURSOR),
         ]
-        mock_resolve_inst.return_value = _mock_installer()
-        mock_test.return_value = _connection_result()
-        ctx = _make_ctx()
 
+        installer_resolver = AsyncMock()
+        installer_resolver.resolve_installer = AsyncMock(return_value=_mock_installer())
+
+        connection_tester = AsyncMock()
+        connection_tester.test_server_connection = AsyncMock(return_value=_connection_result())
+
+        ctx = _make_ctx(
+            installer_resolver=installer_resolver,
+            connection_tester=connection_tester,
+        )
         result = await restore("/my/project", ctx)
 
         assert "claude_code" in result["clients"]
         assert "cursor" in result["clients"]
 
-    @patch(_P_TEST_CONNECTION)
     @patch(_P_WRITE_CONFIG)
-    @patch(_P_RESOLVE_INSTALLER)
     @patch(_P_RESOLVE_LOCATIONS)
     @patch(_P_READ_LOCKFILE)
     async def test_server_config_has_empty_env(
         self,
         mock_read: MagicMock,
         mock_resolve_loc: MagicMock,
-        mock_resolve_inst: MagicMock,
         mock_write: MagicMock,
-        mock_test: MagicMock,
     ) -> None:
         """Should write server config with empty env dict (lockfile has no env values)."""
         mock_read.return_value = _lockfile_with_servers(pg=_locked_server())
         mock_resolve_loc.return_value = [_fake_location()]
-        mock_resolve_inst.return_value = _mock_installer()
-        mock_test.return_value = _connection_result()
-        ctx = _make_ctx()
 
+        installer_resolver = AsyncMock()
+        installer_resolver.resolve_installer = AsyncMock(return_value=_mock_installer())
+
+        connection_tester = AsyncMock()
+        connection_tester.test_server_connection = AsyncMock(return_value=_connection_result())
+
+        ctx = _make_ctx(
+            installer_resolver=installer_resolver,
+            connection_tester=connection_tester,
+        )
         await restore("/my/project", ctx)
 
         # Check the ServerConfig passed to write_server_config
@@ -499,59 +532,80 @@ class TestSuccessfulRestore:
 class TestEnvKeysReporting:
     """Tests for env_vars_needed output when servers have env_keys."""
 
-    @patch(_P_TEST_CONNECTION, return_value=_connection_result())
     @patch(_P_WRITE_CONFIG)
-    @patch(_P_RESOLVE_INSTALLER, return_value=_mock_installer())
     @patch(_P_RESOLVE_LOCATIONS)
     @patch(_P_READ_LOCKFILE)
     async def test_env_vars_needed_included_when_present(
-        self, mock_read: MagicMock, mock_resolve: MagicMock, *_: MagicMock
+        self, mock_read: MagicMock, mock_resolve: MagicMock, mock_write: MagicMock
     ) -> None:
         """Should include env_vars_needed when servers have env_keys."""
         locked = _locked_server(env_keys=["DATABASE_URL", "API_KEY"])
         mock_read.return_value = _lockfile_with_servers(pg=locked)
         mock_resolve.return_value = [_fake_location()]
-        ctx = _make_ctx()
 
+        installer_resolver = AsyncMock()
+        installer_resolver.resolve_installer = AsyncMock(return_value=_mock_installer())
+
+        connection_tester = AsyncMock()
+        connection_tester.test_server_connection = AsyncMock(return_value=_connection_result())
+
+        ctx = _make_ctx(
+            installer_resolver=installer_resolver,
+            connection_tester=connection_tester,
+        )
         result = await restore("/my/project", ctx)
 
         assert "env_vars_needed" in result
         assert result["env_vars_needed"][0]["server"] == "pg"
         assert result["env_vars_needed"][0]["env_keys"] == ["DATABASE_URL", "API_KEY"]
 
-    @patch(_P_TEST_CONNECTION, return_value=_connection_result())
     @patch(_P_WRITE_CONFIG)
-    @patch(_P_RESOLVE_INSTALLER, return_value=_mock_installer())
     @patch(_P_RESOLVE_LOCATIONS)
     @patch(_P_READ_LOCKFILE)
     async def test_env_hint_included_when_env_keys_present(
-        self, mock_read: MagicMock, mock_resolve: MagicMock, *_: MagicMock
+        self, mock_read: MagicMock, mock_resolve: MagicMock, mock_write: MagicMock
     ) -> None:
         """Should include a human-readable env_hint."""
         locked = _locked_server(env_keys=["SECRET"])
         mock_read.return_value = _lockfile_with_servers(pg=locked)
         mock_resolve.return_value = [_fake_location()]
-        ctx = _make_ctx()
 
+        installer_resolver = AsyncMock()
+        installer_resolver.resolve_installer = AsyncMock(return_value=_mock_installer())
+
+        connection_tester = AsyncMock()
+        connection_tester.test_server_connection = AsyncMock(return_value=_connection_result())
+
+        ctx = _make_ctx(
+            installer_resolver=installer_resolver,
+            connection_tester=connection_tester,
+        )
         result = await restore("/my/project", ctx)
 
         assert "env_hint" in result
         assert "environment variables" in result["env_hint"].lower()
 
-    @patch(_P_TEST_CONNECTION, return_value=_connection_result())
     @patch(_P_WRITE_CONFIG)
-    @patch(_P_RESOLVE_INSTALLER, return_value=_mock_installer())
     @patch(_P_RESOLVE_LOCATIONS)
     @patch(_P_READ_LOCKFILE)
     async def test_no_env_vars_needed_when_no_env_keys(
-        self, mock_read: MagicMock, mock_resolve: MagicMock, *_: MagicMock
+        self, mock_read: MagicMock, mock_resolve: MagicMock, mock_write: MagicMock
     ) -> None:
         """Should not include env_vars_needed when no servers have env_keys."""
         locked = _locked_server(env_keys=[])
         mock_read.return_value = _lockfile_with_servers(pg=locked)
         mock_resolve.return_value = [_fake_location()]
-        ctx = _make_ctx()
 
+        installer_resolver = AsyncMock()
+        installer_resolver.resolve_installer = AsyncMock(return_value=_mock_installer())
+
+        connection_tester = AsyncMock()
+        connection_tester.test_server_connection = AsyncMock(return_value=_connection_result())
+
+        ctx = _make_ctx(
+            installer_resolver=installer_resolver,
+            connection_tester=connection_tester,
+        )
         result = await restore("/my/project", ctx)
 
         assert "env_vars_needed" not in result
@@ -564,56 +618,58 @@ class TestEnvKeysReporting:
 class TestInstallFailure:
     """Tests when package installation fails."""
 
-    @patch(_P_TEST_CONNECTION)
     @patch(_P_WRITE_CONFIG)
-    @patch(_P_RESOLVE_INSTALLER)
     @patch(_P_RESOLVE_LOCATIONS)
     @patch(_P_READ_LOCKFILE)
     async def test_install_failure_returns_success_false_for_server(
         self,
         mock_read: MagicMock,
         mock_resolve_loc: MagicMock,
-        mock_resolve_inst: MagicMock,
         mock_write: MagicMock,
-        mock_test: MagicMock,
     ) -> None:
         """Should mark server as failed when install returns success=False."""
         mock_read.return_value = _lockfile_with_servers(pg=_locked_server())
         mock_resolve_loc.return_value = [_fake_location()]
-        mock_resolve_inst.return_value = _mock_installer(
-            _install_result(success=False, message="npm install failed")
-        )
-        ctx = _make_ctx()
 
+        installer_resolver = AsyncMock()
+        installer_resolver.resolve_installer = AsyncMock(
+            return_value=_mock_installer(
+                _install_result(success=False, message="npm install failed")
+            )
+        )
+
+        connection_tester = AsyncMock()
+        ctx = _make_ctx(
+            installer_resolver=installer_resolver,
+            connection_tester=connection_tester,
+        )
         result = await restore("/my/project", ctx)
 
         assert result["servers"][0]["success"] is False
         assert "Install failed" in result["servers"][0]["error"]
         # Should not write config or test connection
         mock_write.assert_not_called()
-        mock_test.assert_not_called()
+        connection_tester.test_server_connection.assert_not_called()
 
-    @patch(_P_TEST_CONNECTION)
     @patch(_P_WRITE_CONFIG)
-    @patch(_P_RESOLVE_INSTALLER)
     @patch(_P_RESOLVE_LOCATIONS)
     @patch(_P_READ_LOCKFILE)
     async def test_install_failure_overall_success_false_when_only_server(
         self,
         mock_read: MagicMock,
         mock_resolve_loc: MagicMock,
-        mock_resolve_inst: MagicMock,
         mock_write: MagicMock,
-        mock_test: MagicMock,
     ) -> None:
         """Should report overall success=False when all servers fail."""
         mock_read.return_value = _lockfile_with_servers(pg=_locked_server())
         mock_resolve_loc.return_value = [_fake_location()]
-        mock_resolve_inst.return_value = _mock_installer(
-            _install_result(success=False, message="failed")
-        )
-        ctx = _make_ctx()
 
+        installer_resolver = AsyncMock()
+        installer_resolver.resolve_installer = AsyncMock(
+            return_value=_mock_installer(_install_result(success=False, message="failed"))
+        )
+
+        ctx = _make_ctx(installer_resolver=installer_resolver)
         result = await restore("/my/project", ctx)
 
         assert result["success"] is False
@@ -627,18 +683,14 @@ class TestInstallFailure:
 class TestMultipleServers:
     """Tests when restoring multiple servers with mixed outcomes."""
 
-    @patch(_P_TEST_CONNECTION)
     @patch(_P_WRITE_CONFIG)
-    @patch(_P_RESOLVE_INSTALLER)
     @patch(_P_RESOLVE_LOCATIONS)
     @patch(_P_READ_LOCKFILE)
     async def test_one_succeeds_one_fails(
         self,
         mock_read: MagicMock,
         mock_resolve_loc: MagicMock,
-        mock_resolve_inst: MagicMock,
         mock_write: MagicMock,
-        mock_test: MagicMock,
     ) -> None:
         """Should report partial success when one server fails."""
         mock_read.return_value = _lockfile_with_servers(
@@ -650,10 +702,19 @@ class TestMultipleServers:
         # First call succeeds, second fails
         good_installer = _mock_installer(_install_result(success=True))
         bad_installer = _mock_installer(_install_result(success=False, message="not found"))
-        mock_resolve_inst.side_effect = [good_installer, bad_installer]
-        mock_test.return_value = _connection_result()
-        ctx = _make_ctx()
 
+        installer_resolver = AsyncMock()
+        installer_resolver.resolve_installer = AsyncMock(
+            side_effect=[good_installer, bad_installer]
+        )
+
+        connection_tester = AsyncMock()
+        connection_tester.test_server_connection = AsyncMock(return_value=_connection_result())
+
+        ctx = _make_ctx(
+            installer_resolver=installer_resolver,
+            connection_tester=connection_tester,
+        )
         result = await restore("/my/project", ctx)
 
         assert result["success"] is True  # at least one succeeded
@@ -661,18 +722,14 @@ class TestMultipleServers:
         assert result["restored"] == 1
         assert result["failed"] == 1
 
-    @patch(_P_TEST_CONNECTION)
     @patch(_P_WRITE_CONFIG)
-    @patch(_P_RESOLVE_INSTALLER)
     @patch(_P_RESOLVE_LOCATIONS)
     @patch(_P_READ_LOCKFILE)
     async def test_all_fail_overall_false(
         self,
         mock_read: MagicMock,
         mock_resolve_loc: MagicMock,
-        mock_resolve_inst: MagicMock,
         mock_write: MagicMock,
-        mock_test: MagicMock,
     ) -> None:
         """Should report overall success=False when all servers fail."""
         mock_read.return_value = _lockfile_with_servers(
@@ -680,11 +737,13 @@ class TestMultipleServers:
             redis=_locked_server(),
         )
         mock_resolve_loc.return_value = [_fake_location()]
-        mock_resolve_inst.return_value = _mock_installer(
-            _install_result(success=False, message="fail")
-        )
-        ctx = _make_ctx()
 
+        installer_resolver = AsyncMock()
+        installer_resolver.resolve_installer = AsyncMock(
+            return_value=_mock_installer(_install_result(success=False, message="fail"))
+        )
+
+        ctx = _make_ctx(installer_resolver=installer_resolver)
         result = await restore("/my/project", ctx)
 
         assert result["success"] is False
@@ -698,52 +757,62 @@ class TestMultipleServers:
 class TestValidationFailure:
     """Tests when connection validation fails after successful install."""
 
-    @patch(_P_TEST_CONNECTION)
     @patch(_P_WRITE_CONFIG)
-    @patch(_P_RESOLVE_INSTALLER)
     @patch(_P_RESOLVE_LOCATIONS)
     @patch(_P_READ_LOCKFILE)
     async def test_validation_failed_still_success_true(
         self,
         mock_read: MagicMock,
         mock_resolve_loc: MagicMock,
-        mock_resolve_inst: MagicMock,
         mock_write: MagicMock,
-        mock_test: MagicMock,
     ) -> None:
         """Should report server success=True but validation_passed=False."""
         mock_read.return_value = _lockfile_with_servers(pg=_locked_server())
         mock_resolve_loc.return_value = [_fake_location()]
-        mock_resolve_inst.return_value = _mock_installer()
-        mock_test.return_value = _connection_result(success=False)
-        ctx = _make_ctx()
 
+        installer_resolver = AsyncMock()
+        installer_resolver.resolve_installer = AsyncMock(return_value=_mock_installer())
+
+        connection_tester = AsyncMock()
+        connection_tester.test_server_connection = AsyncMock(
+            return_value=_connection_result(success=False)
+        )
+
+        ctx = _make_ctx(
+            installer_resolver=installer_resolver,
+            connection_tester=connection_tester,
+        )
         result = await restore("/my/project", ctx)
 
         server = result["servers"][0]
         assert server["success"] is True  # install succeeded
         assert server["validation_passed"] is False  # but connection failed
 
-    @patch(_P_TEST_CONNECTION)
     @patch(_P_WRITE_CONFIG)
-    @patch(_P_RESOLVE_INSTALLER)
     @patch(_P_RESOLVE_LOCATIONS)
     @patch(_P_READ_LOCKFILE)
     async def test_validation_failed_config_still_written(
         self,
         mock_read: MagicMock,
         mock_resolve_loc: MagicMock,
-        mock_resolve_inst: MagicMock,
         mock_write: MagicMock,
-        mock_test: MagicMock,
     ) -> None:
         """Should write config even if validation fails."""
         mock_read.return_value = _lockfile_with_servers(pg=_locked_server())
         mock_resolve_loc.return_value = [_fake_location()]
-        mock_resolve_inst.return_value = _mock_installer()
-        mock_test.return_value = _connection_result(success=False)
-        ctx = _make_ctx()
 
+        installer_resolver = AsyncMock()
+        installer_resolver.resolve_installer = AsyncMock(return_value=_mock_installer())
+
+        connection_tester = AsyncMock()
+        connection_tester.test_server_connection = AsyncMock(
+            return_value=_connection_result(success=False)
+        )
+
+        ctx = _make_ctx(
+            installer_resolver=installer_resolver,
+            connection_tester=connection_tester,
+        )
         await restore("/my/project", ctx)
 
         mock_write.assert_called_once()
@@ -755,23 +824,25 @@ class TestValidationFailure:
 class TestInstallerNotFound:
     """Tests when the required package manager is not installed."""
 
-    @patch(_P_RESOLVE_INSTALLER)
     @patch(_P_RESOLVE_LOCATIONS)
     @patch(_P_READ_LOCKFILE)
     async def test_installer_not_found_handled_gracefully(
         self,
         mock_read: MagicMock,
         mock_resolve_loc: MagicMock,
-        mock_resolve_inst: MagicMock,
     ) -> None:
         """Should catch InstallerNotFoundError and mark server as failed."""
         mock_read.return_value = _lockfile_with_servers(pg=_locked_server())
         mock_resolve_loc.return_value = [_fake_location()]
-        mock_resolve_inst.side_effect = InstallerNotFoundError(
-            "npm is not installed. Install it from https://nodejs.org/"
-        )
-        ctx = _make_ctx()
 
+        installer_resolver = AsyncMock()
+        installer_resolver.resolve_installer = AsyncMock(
+            side_effect=InstallerNotFoundError(
+                "npm is not installed. Install it from https://nodejs.org/"
+            )
+        )
+
+        ctx = _make_ctx(installer_resolver=installer_resolver)
         result = await restore("/my/project", ctx)
 
         assert result["servers"][0]["success"] is False
@@ -861,40 +932,50 @@ class TestUnexpectedException:
 class TestRestoreServerHelper:
     """Tests for the _restore_server helper function."""
 
-    @patch(_P_TEST_CONNECTION, return_value=_connection_result())
     @patch(_P_WRITE_CONFIG)
-    @patch(_P_RESOLVE_INSTALLER)
-    async def test_calls_ctx_info(
-        self,
-        mock_resolve_inst: MagicMock,
-        mock_write: MagicMock,
-        mock_test: MagicMock,
-    ) -> None:
+    async def test_calls_ctx_info(self, mock_write: MagicMock) -> None:
         """Should log info message at the start of restore."""
-        mock_resolve_inst.return_value = _mock_installer()
+        installer_resolver = AsyncMock()
+        installer_resolver.resolve_installer = AsyncMock(return_value=_mock_installer())
+
+        connection_tester = AsyncMock()
+        connection_tester.test_server_connection = AsyncMock(return_value=_connection_result())
+
         ctx = _make_ctx()
         locations = [_fake_location()]
 
-        await _restore_server("pg", _locked_server(), locations, ctx)
+        await _restore_server(
+            "pg",
+            _locked_server(),
+            locations,
+            ctx,
+            installer_resolver,
+            connection_tester,
+        )
 
         ctx.info.assert_awaited()
         info_msg = ctx.info.call_args[0][0]
         assert "pg" in info_msg
 
-    @patch(_P_TEST_CONNECTION, return_value=_connection_result())
     @patch(_P_WRITE_CONFIG)
-    @patch(_P_RESOLVE_INSTALLER)
-    async def test_writes_overwrite_existing_true(
-        self,
-        mock_resolve_inst: MagicMock,
-        mock_write: MagicMock,
-        mock_test: MagicMock,
-    ) -> None:
+    async def test_writes_overwrite_existing_true(self, mock_write: MagicMock) -> None:
         """Should write config with overwrite_existing=True."""
-        mock_resolve_inst.return_value = _mock_installer()
+        installer_resolver = AsyncMock()
+        installer_resolver.resolve_installer = AsyncMock(return_value=_mock_installer())
+
+        connection_tester = AsyncMock()
+        connection_tester.test_server_connection = AsyncMock(return_value=_connection_result())
+
         ctx = _make_ctx()
 
-        await _restore_server("pg", _locked_server(), [_fake_location()], ctx)
+        await _restore_server(
+            "pg",
+            _locked_server(),
+            [_fake_location()],
+            ctx,
+            installer_resolver,
+            connection_tester,
+        )
 
         call_args = mock_write.call_args
         # write_server_config(Path, name, config, overwrite_existing=True)
@@ -902,59 +983,73 @@ class TestRestoreServerHelper:
             len(call_args.args) > 3 and call_args.args[3] is True
         )
 
-    @patch(_P_TEST_CONNECTION, return_value=_connection_result())
-    @patch(_P_WRITE_CONFIG)
-    @patch(_P_RESOLVE_INSTALLER)
-    async def test_unexpected_exception_caught_in_restore_server(
-        self,
-        mock_resolve_inst: MagicMock,
-        mock_write: MagicMock,
-        mock_test: MagicMock,
-    ) -> None:
+    async def test_unexpected_exception_caught_in_restore_server(self) -> None:
         """Should catch unexpected exceptions and return internal error."""
-        mock_resolve_inst.side_effect = RuntimeError("boom")
+        installer_resolver = AsyncMock()
+        installer_resolver.resolve_installer = AsyncMock(side_effect=RuntimeError("boom"))
+
+        connection_tester = AsyncMock()
         ctx = _make_ctx()
 
-        result = await _restore_server("pg", _locked_server(), [_fake_location()], ctx)
+        result = await _restore_server(
+            "pg",
+            _locked_server(),
+            [_fake_location()],
+            ctx,
+            installer_resolver,
+            connection_tester,
+        )
 
         assert result["server"] == "pg"
         assert result["success"] is False
         assert "Internal error" in result["error"]
 
-    @patch(_P_TEST_CONNECTION, return_value=_connection_result())
-    @patch(_P_WRITE_CONFIG)
-    @patch(_P_RESOLVE_INSTALLER)
-    async def test_mcp_tap_error_caught_in_restore_server(
-        self,
-        mock_resolve_inst: MagicMock,
-        mock_write: MagicMock,
-        mock_test: MagicMock,
-    ) -> None:
+    async def test_mcp_tap_error_caught_in_restore_server(self) -> None:
         """Should catch McpTapError and return server-level error."""
-        mock_resolve_inst.side_effect = InstallerNotFoundError("no npm")
+        installer_resolver = AsyncMock()
+        installer_resolver.resolve_installer = AsyncMock(
+            side_effect=InstallerNotFoundError("no npm")
+        )
+
+        connection_tester = AsyncMock()
         ctx = _make_ctx()
 
-        result = await _restore_server("pg", _locked_server(), [_fake_location()], ctx)
+        result = await _restore_server(
+            "pg",
+            _locked_server(),
+            [_fake_location()],
+            ctx,
+            installer_resolver,
+            connection_tester,
+        )
 
         assert result["server"] == "pg"
         assert result["success"] is False
         assert "no npm" in result["error"]
 
-    @patch(_P_TEST_CONNECTION, return_value=_connection_result(tools=["tool_a"]))
     @patch(_P_WRITE_CONFIG)
-    @patch(_P_RESOLVE_INSTALLER)
-    async def test_returns_package_and_version(
-        self,
-        mock_resolve_inst: MagicMock,
-        mock_write: MagicMock,
-        mock_test: MagicMock,
-    ) -> None:
+    async def test_returns_package_and_version(self, mock_write: MagicMock) -> None:
         """Should include package identifier and version in success result."""
         locked = _locked_server(package_identifier="@mcp/fancy", version="5.0.0")
-        mock_resolve_inst.return_value = _mock_installer()
+
+        installer_resolver = AsyncMock()
+        installer_resolver.resolve_installer = AsyncMock(return_value=_mock_installer())
+
+        connection_tester = AsyncMock()
+        connection_tester.test_server_connection = AsyncMock(
+            return_value=_connection_result(tools=["tool_a"])
+        )
+
         ctx = _make_ctx()
 
-        result = await _restore_server("fancy", locked, [_fake_location()], ctx)
+        result = await _restore_server(
+            "fancy",
+            locked,
+            [_fake_location()],
+            ctx,
+            installer_resolver,
+            connection_tester,
+        )
 
         assert result["package"] == "@mcp/fancy"
         assert result["version"] == "5.0.0"
@@ -1060,18 +1155,14 @@ class TestDataFlow:
 
         mock_resolve.assert_called_once_with("", scope="user", project_path="/my/project")
 
-    @patch(_P_TEST_CONNECTION)
     @patch(_P_WRITE_CONFIG)
-    @patch(_P_RESOLVE_INSTALLER)
     @patch(_P_RESOLVE_LOCATIONS)
     @patch(_P_READ_LOCKFILE)
     async def test_resolve_installer_called_with_registry_type(
         self,
         mock_read: MagicMock,
         mock_resolve_loc: MagicMock,
-        mock_resolve_inst: MagicMock,
         mock_write: MagicMock,
-        mock_test: MagicMock,
     ) -> None:
         """Should resolve installer using the locked registry_type."""
         from mcp_tap.models import RegistryType
@@ -1079,39 +1170,49 @@ class TestDataFlow:
         locked = _locked_server(registry_type="pypi")
         mock_read.return_value = _lockfile_with_servers(pg=locked)
         mock_resolve_loc.return_value = [_fake_location()]
-        mock_resolve_inst.return_value = _mock_installer()
-        mock_test.return_value = _connection_result()
-        ctx = _make_ctx()
 
+        installer_resolver = AsyncMock()
+        installer_resolver.resolve_installer = AsyncMock(return_value=_mock_installer())
+
+        connection_tester = AsyncMock()
+        connection_tester.test_server_connection = AsyncMock(return_value=_connection_result())
+
+        ctx = _make_ctx(
+            installer_resolver=installer_resolver,
+            connection_tester=connection_tester,
+        )
         await restore("/my/project", ctx)
 
-        mock_resolve_inst.assert_awaited_once_with(RegistryType.PYPI)
+        installer_resolver.resolve_installer.assert_awaited_once_with(RegistryType.PYPI)
 
-    @patch(_P_TEST_CONNECTION)
     @patch(_P_WRITE_CONFIG)
-    @patch(_P_RESOLVE_INSTALLER)
     @patch(_P_RESOLVE_LOCATIONS)
     @patch(_P_READ_LOCKFILE)
     async def test_test_connection_called_with_correct_args(
         self,
         mock_read: MagicMock,
         mock_resolve_loc: MagicMock,
-        mock_resolve_inst: MagicMock,
         mock_write: MagicMock,
-        mock_test: MagicMock,
     ) -> None:
         """Should test connection with server name, config, and timeout=15."""
         locked = _locked_server(command="uvx", args=["mcp-pg"])
         mock_read.return_value = _lockfile_with_servers(pg=locked)
         mock_resolve_loc.return_value = [_fake_location()]
-        mock_resolve_inst.return_value = _mock_installer()
-        mock_test.return_value = _connection_result()
-        ctx = _make_ctx()
 
+        installer_resolver = AsyncMock()
+        installer_resolver.resolve_installer = AsyncMock(return_value=_mock_installer())
+
+        connection_tester = AsyncMock()
+        connection_tester.test_server_connection = AsyncMock(return_value=_connection_result())
+
+        ctx = _make_ctx(
+            installer_resolver=installer_resolver,
+            connection_tester=connection_tester,
+        )
         await restore("/my/project", ctx)
 
-        mock_test.assert_awaited_once()
-        call_args = mock_test.call_args
+        connection_tester.test_server_connection.assert_awaited_once()
+        call_args = connection_tester.test_server_connection.call_args
         assert call_args.args[0] == "pg"  # server name
         # The ServerConfig should match the locked config
         server_config = call_args.args[1]

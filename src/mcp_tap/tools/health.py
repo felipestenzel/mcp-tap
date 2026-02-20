@@ -11,9 +11,9 @@ from mcp.server.fastmcp import Context
 
 from mcp_tap.config.detection import detect_clients, resolve_config_path
 from mcp_tap.config.reader import parse_servers, read_config
-from mcp_tap.connection.tester import test_server_connection
+from mcp_tap.connection.base import ConnectionTesterPort
 from mcp_tap.errors import McpTapError
-from mcp_tap.healing.retry import heal_and_retry
+from mcp_tap.healing.base import HealingOrchestratorPort
 from mcp_tap.models import (
     ConnectionTestResult,
     HealthReport,
@@ -21,6 +21,7 @@ from mcp_tap.models import (
     MCPClient,
     ServerHealth,
 )
+from mcp_tap.tools._helpers import get_context
 from mcp_tap.tools.conflicts import detect_tool_conflicts
 
 logger = logging.getLogger(__name__)
@@ -58,6 +59,8 @@ async def check_health(
         When auto_heal is True, unhealthy servers include a "healing" key.
     """
     try:
+        app = get_context(ctx)
+
         if client:
             location = resolve_config_path(MCPClient(client))
         else:
@@ -91,7 +94,7 @@ async def check_health(
 
         timeout = max(5, min(timeout_seconds, 60))
 
-        server_healths = await _check_all_servers(servers, timeout)
+        server_healths = await _check_all_servers(servers, timeout, app.connection_tester)
 
         # Attempt healing for unhealthy servers if requested
         healing_details: dict[str, dict[str, object]] = {}
@@ -101,6 +104,8 @@ async def check_health(
                 server_healths,
                 timeout,
                 ctx,
+                app.connection_tester,
+                app.healing,
             )
 
         healthy_count = sum(1 for s in server_healths if s.status == "healthy")
@@ -146,6 +151,7 @@ _MAX_CONCURRENT_CHECKS = 5
 async def _check_all_servers(
     servers: list[InstalledServer],
     timeout_seconds: int,
+    connection_tester: ConnectionTesterPort,
 ) -> list[ServerHealth]:
     """Run health checks on all servers concurrently.
 
@@ -157,7 +163,7 @@ async def _check_all_servers(
 
     async def _limited_check(server: InstalledServer) -> ServerHealth:
         async with sem:
-            return await _check_single_server(server, timeout_seconds)
+            return await _check_single_server(server, timeout_seconds, connection_tester)
 
     tasks = [_limited_check(server) for server in servers]
     results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -181,9 +187,10 @@ async def _check_all_servers(
 async def _check_single_server(
     server: InstalledServer,
     timeout_seconds: int,
+    connection_tester: ConnectionTesterPort,
 ) -> ServerHealth:
     """Check one server and return its ServerHealth."""
-    result = await test_server_connection(
+    result = await connection_tester.test_server_connection(
         server.name,
         server.config,
         timeout_seconds=timeout_seconds,
@@ -211,6 +218,8 @@ async def _heal_unhealthy(
     healths: list[ServerHealth],
     timeout_seconds: int,
     ctx: Context,
+    connection_tester: ConnectionTesterPort,
+    healing: HealingOrchestratorPort,
 ) -> tuple[list[ServerHealth], dict[str, dict[str, object]]]:
     """Attempt healing for each unhealthy server.
 
@@ -233,7 +242,7 @@ async def _heal_unhealthy(
             error=health.error,
         )
 
-        healing_result = await heal_and_retry(
+        healing_result = await healing.heal_and_retry(
             server.name,
             server.config,
             error_result,
@@ -248,7 +257,7 @@ async def _heal_unhealthy(
 
         if healing_result.fixed and healing_result.fixed_config is not None:
             # Re-check with healed config
-            recheck = await test_server_connection(
+            recheck = await connection_tester.test_server_connection(
                 server.name,
                 healing_result.fixed_config,
                 timeout_seconds=timeout_seconds,

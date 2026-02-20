@@ -10,7 +10,20 @@ import httpx
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 
+from mcp_tap.connection.base import ConnectionTesterPort
+from mcp_tap.connection.tester import DefaultConnectionTester
+from mcp_tap.evaluation.base import GitHubMetadataPort
+from mcp_tap.evaluation.github import DefaultGitHubMetadata
+from mcp_tap.healing.base import HealingOrchestratorPort
+from mcp_tap.healing.retry import DefaultHealingOrchestrator
+from mcp_tap.inspector.base import ReadmeFetcherPort
+from mcp_tap.inspector.fetcher import DefaultReadmeFetcher
+from mcp_tap.installer.base import InstallerResolverPort
+from mcp_tap.installer.resolver import DefaultInstallerResolver
+from mcp_tap.registry.base import RegistryClientPort
 from mcp_tap.registry.client import RegistryClient
+from mcp_tap.security.base import SecurityGatePort
+from mcp_tap.security.gate import DefaultSecurityGate
 from mcp_tap.tools.configure import configure_server
 from mcp_tap.tools.health import check_health
 from mcp_tap.tools.inspect import inspect_server
@@ -24,17 +37,28 @@ from mcp_tap.tools.test import test_connection
 from mcp_tap.tools.verify import verify
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class AppContext:
-    """Shared state across all tool invocations."""
+    """Shared state across all tool invocations.
+
+    Tier B adapters (stateful / I/O boundaries) are injected here.
+    Tier A adapters (stateless pure functions like config detection/reader/writer)
+    remain as direct module imports — wrapping them adds ceremony without value.
+    """
 
     http_client: httpx.AsyncClient
-    registry: RegistryClient
+    registry: RegistryClientPort
+    github_metadata: GitHubMetadataPort
+    connection_tester: ConnectionTesterPort
+    healing: HealingOrchestratorPort
+    security_gate: SecurityGatePort
+    readme_fetcher: ReadmeFetcherPort
+    installer_resolver: InstallerResolverPort
 
 
 @asynccontextmanager
 async def app_lifespan(server: FastMCP) -> AsyncIterator[AppContext]:
-    """Manage httpx client lifecycle."""
+    """Manage shared adapter lifecycle — the composition root."""
     async with httpx.AsyncClient(
         timeout=httpx.Timeout(30.0, connect=10.0),
         follow_redirects=True,
@@ -42,7 +66,23 @@ async def app_lifespan(server: FastMCP) -> AsyncIterator[AppContext]:
         transport=httpx.AsyncHTTPTransport(retries=3),
     ) as http_client:
         registry = RegistryClient(http_client)
-        yield AppContext(http_client=http_client, registry=registry)
+        github_metadata = DefaultGitHubMetadata(http_client)
+        readme_fetcher = DefaultReadmeFetcher(http_client)
+        security_gate = DefaultSecurityGate(http_client)
+        connection_tester = DefaultConnectionTester()
+        healing = DefaultHealingOrchestrator(connection_tester)
+        installer_resolver = DefaultInstallerResolver()
+
+        yield AppContext(
+            http_client=http_client,
+            registry=registry,
+            github_metadata=github_metadata,
+            connection_tester=connection_tester,
+            healing=healing,
+            security_gate=security_gate,
+            readme_fetcher=readme_fetcher,
+            installer_resolver=installer_resolver,
+        )
 
 
 mcp = FastMCP(

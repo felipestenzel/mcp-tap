@@ -19,6 +19,25 @@ _SUSPICIOUS_COMMANDS = frozenset({"bash", "sh", "cmd", "powershell", "curl", "wg
 _SHELL_METACHARACTERS = ("|", "&&", ">>", "$(", "`")
 
 
+class DefaultSecurityGate:
+    """Adapter for SecurityGatePort — holds httpx client."""
+
+    def __init__(self, http_client: httpx.AsyncClient) -> None:
+        self._http = http_client
+
+    async def run_security_gate(
+        self,
+        package_identifier: str,
+        repository_url: str,
+        command: str,
+        args: list[str],
+    ) -> SecurityReport:
+        """Run all security checks and return an aggregated report."""
+        return await run_security_gate(
+            package_identifier, repository_url, command, args, http_client=self._http
+        )
+
+
 async def run_security_gate(
     package_identifier: str,
     repository_url: str,

@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 from mcp_tap.errors import InstallerNotFoundError
+from mcp_tap.installer.base import PackageInstaller
 from mcp_tap.installer.docker import DockerInstaller
 from mcp_tap.installer.npm import NpmInstaller
 from mcp_tap.installer.pip import PipInstaller
 from mcp_tap.models import RegistryType
-
-PackageInstaller = NpmInstaller | PipInstaller | DockerInstaller
 
 _INSTALLERS: dict[RegistryType, type] = {
     RegistryType.NPM: NpmInstaller,
@@ -42,3 +41,11 @@ async def resolve_installer(registry_type: RegistryType | str) -> PackageInstall
         )
 
     return installer
+
+
+class DefaultInstallerResolver:
+    """Adapter for InstallerResolverPort."""
+
+    async def resolve_installer(self, registry_type: RegistryType | str) -> PackageInstaller:
+        """Resolve the appropriate installer for a registry type."""
+        return await resolve_installer(registry_type)

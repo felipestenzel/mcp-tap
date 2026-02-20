@@ -7,7 +7,7 @@ from dataclasses import asdict
 from mcp.server.fastmcp import Context
 
 from mcp_tap.inspector.extractor import extract_config_hints
-from mcp_tap.inspector.fetcher import fetch_readme
+from mcp_tap.tools._helpers import get_context
 
 # Max chars of raw README to return (enough for LLM context)
 _MAX_README_CHARS = 5000
@@ -43,10 +43,9 @@ async def inspect_server(
         confidence (how much structured data was found).
     """
     try:
-        app_ctx = ctx.request_context.lifespan_context
-        http_client = app_ctx.http_client
+        app = get_context(ctx)
 
-        readme = await fetch_readme(repository_url, http_client)
+        readme = await app.readme_fetcher.fetch_readme(repository_url)
         if readme is None:
             return {
                 "success": False,

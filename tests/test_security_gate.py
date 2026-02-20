@@ -26,14 +26,37 @@ from mcp_tap.tools.configure import configure_server
 # ─── Helpers ─────────────────────────────────────────────────
 
 
-def _make_ctx() -> MagicMock:
-    """Build a mock Context with async info/error methods."""
+def _make_ctx(
+    *,
+    connection_tester: AsyncMock | None = None,
+    healing: AsyncMock | None = None,
+    installer_resolver: AsyncMock | None = None,
+    security_gate: AsyncMock | None = None,
+) -> MagicMock:
+    """Build a mock Context with AppContext injected into lifespan_context."""
+    from mcp_tap.models import HealingResult
+    from mcp_tap.security.gate import DefaultSecurityGate
+    from mcp_tap.server import AppContext
+
+    # Default healing mock returns failed result
+    if healing is None:
+        healing = AsyncMock()
+        healing.heal_and_retry = AsyncMock(return_value=HealingResult(fixed=False, attempts=[]))
+
+    # Default security gate uses the real implementation with no http_client
+    if security_gate is None:
+        security_gate = DefaultSecurityGate(http_client=None)
+
+    app = MagicMock(spec=AppContext)
+    app.connection_tester = connection_tester or AsyncMock()
+    app.healing = healing
+    app.installer_resolver = installer_resolver or AsyncMock()
+    app.security_gate = security_gate
+
     ctx = MagicMock()
+    ctx.request_context.lifespan_context = app
     ctx.info = AsyncMock()
     ctx.error = AsyncMock()
-    # Make lifespan_context access raise so http_client is None
-    ctx.request_context.lifespan_context = MagicMock()
-    ctx.request_context.lifespan_context.http_client = None
     return ctx
 
 
@@ -470,26 +493,27 @@ class TestSecurityReportModel:
 class TestConfigureSecurityGateIntegration:
     """Tests for security gate integration in configure_server."""
 
-    @patch("mcp_tap.tools.configure.test_server_connection")
     @patch("mcp_tap.tools.configure.write_server_config")
-    @patch("mcp_tap.tools.configure.resolve_installer")
     @patch("mcp_tap.tools.configure.resolve_config_locations")
     async def test_configure_blocked_by_security(
         self,
         mock_locations: MagicMock,
-        mock_resolve_installer: AsyncMock,
         mock_write: MagicMock,
-        mock_test_conn: AsyncMock,
     ):
         """configure_server should return failure when command is suspicious."""
         mock_locations.return_value = [_fake_location()]
         # Installer returns "bash" as the command -- should be blocked
-        mock_resolve_installer.return_value = _mock_installer(
-            command="bash",
-            args=["-c", "echo server"],
+        installer_resolver = AsyncMock()
+        installer_resolver.resolve_installer = AsyncMock(
+            return_value=_mock_installer(command="bash", args=["-c", "echo server"])
         )
 
-        ctx = _make_ctx()
+        connection_tester = AsyncMock()
+
+        ctx = _make_ctx(
+            installer_resolver=installer_resolver,
+            connection_tester=connection_tester,
+        )
         result = await configure_server(
             server_name="evil-server",
             package_identifier="evil-pkg",
@@ -504,28 +528,31 @@ class TestConfigureSecurityGateIntegration:
         # Config should NOT be written
         mock_write.assert_not_called()
         # test_server_connection should NOT be called (blocked before validation)
-        mock_test_conn.assert_not_called()
+        connection_tester.test_server_connection.assert_not_called()
 
-    @patch("mcp_tap.tools.configure.test_server_connection")
     @patch("mcp_tap.tools.configure.write_server_config")
-    @patch("mcp_tap.tools.configure.resolve_installer")
     @patch("mcp_tap.tools.configure.resolve_config_locations")
     async def test_configure_passes_security(
         self,
         mock_locations: MagicMock,
-        mock_resolve_installer: AsyncMock,
         mock_write: MagicMock,
-        mock_test_conn: AsyncMock,
     ):
         """configure_server should proceed normally when command is safe."""
         mock_locations.return_value = [_fake_location()]
-        mock_resolve_installer.return_value = _mock_installer(
-            command="npx",
-            args=["-y", "safe-pkg"],
+        installer_resolver = AsyncMock()
+        installer_resolver.resolve_installer = AsyncMock(
+            return_value=_mock_installer(command="npx", args=["-y", "safe-pkg"])
         )
-        mock_test_conn.return_value = _ok_connection_result("safe-server")
 
-        ctx = _make_ctx()
+        connection_tester = AsyncMock()
+        connection_tester.test_server_connection = AsyncMock(
+            return_value=_ok_connection_result("safe-server")
+        )
+
+        ctx = _make_ctx(
+            installer_resolver=installer_resolver,
+            connection_tester=connection_tester,
+        )
         result = await configure_server(
             server_name="safe-server",
             package_identifier="safe-pkg",
@@ -538,27 +565,30 @@ class TestConfigureSecurityGateIntegration:
         assert result["validation_passed"] is True
         mock_write.assert_called_once()
 
-    @patch("mcp_tap.tools.configure.test_server_connection")
     @patch("mcp_tap.tools.configure.write_server_config")
-    @patch("mcp_tap.tools.configure.resolve_installer")
     @patch("mcp_tap.tools.configure.resolve_config_locations")
     async def test_configure_warns_but_proceeds(
         self,
         mock_locations: MagicMock,
-        mock_resolve_installer: AsyncMock,
         mock_write: MagicMock,
-        mock_test_conn: AsyncMock,
     ):
         """configure_server should proceed (with warnings) when only WARN signals."""
         mock_locations.return_value = [_fake_location()]
         # Args with pipe metacharacter -- WARN only, not BLOCK
-        mock_resolve_installer.return_value = _mock_installer(
-            command="npx",
-            args=["-y", "pkg", "| something"],
+        installer_resolver = AsyncMock()
+        installer_resolver.resolve_installer = AsyncMock(
+            return_value=_mock_installer(command="npx", args=["-y", "pkg", "| something"])
         )
-        mock_test_conn.return_value = _ok_connection_result("warn-server")
 
-        ctx = _make_ctx()
+        connection_tester = AsyncMock()
+        connection_tester.test_server_connection = AsyncMock(
+            return_value=_ok_connection_result("warn-server")
+        )
+
+        ctx = _make_ctx(
+            installer_resolver=installer_resolver,
+            connection_tester=connection_tester,
+        )
         result = await configure_server(
             server_name="warn-server",
             package_identifier="warn-pkg",
@@ -578,27 +608,30 @@ class TestConfigureSecurityGateIntegration:
             )
         )
 
-    @patch("mcp_tap.tools.configure.run_security_gate")
-    @patch("mcp_tap.tools.configure.test_server_connection")
     @patch("mcp_tap.tools.configure.write_server_config")
-    @patch("mcp_tap.tools.configure.resolve_installer")
     @patch("mcp_tap.tools.configure.resolve_config_locations")
     async def test_security_gate_exception_non_blocking(
         self,
         mock_locations: MagicMock,
-        mock_resolve_installer: AsyncMock,
         mock_write: MagicMock,
-        mock_test_conn: AsyncMock,
-        mock_gate: AsyncMock,
     ):
         """Security gate exception should NOT block installation (non-blocking)."""
         mock_locations.return_value = [_fake_location()]
-        mock_resolve_installer.return_value = _mock_installer()
-        mock_test_conn.return_value = _ok_connection_result()
-        # Security gate raises -- should be caught gracefully
-        mock_gate.side_effect = RuntimeError("gate crashed")
+        installer_resolver = AsyncMock()
+        installer_resolver.resolve_installer = AsyncMock(return_value=_mock_installer())
 
-        ctx = _make_ctx()
+        connection_tester = AsyncMock()
+        connection_tester.test_server_connection = AsyncMock(return_value=_ok_connection_result())
+
+        # Security gate that raises -- should be caught gracefully
+        security_gate = AsyncMock()
+        security_gate.run_security_gate = AsyncMock(side_effect=RuntimeError("gate crashed"))
+
+        ctx = _make_ctx(
+            installer_resolver=installer_resolver,
+            connection_tester=connection_tester,
+            security_gate=security_gate,
+        )
         result = await configure_server(
             server_name="server",
             package_identifier="pkg",

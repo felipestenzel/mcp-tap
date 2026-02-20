@@ -9,10 +9,9 @@ from mcp.server.fastmcp import Context
 
 from mcp_tap.config.detection import detect_clients, resolve_config_path
 from mcp_tap.config.reader import parse_servers, read_config
-from mcp_tap.connection.tester import test_server_connection
 from mcp_tap.errors import McpTapError, ServerNotFoundError
-from mcp_tap.healing.retry import heal_and_retry
 from mcp_tap.models import ConnectionTestResult, MCPClient
+from mcp_tap.tools._helpers import get_context
 
 
 async def test_connection(
@@ -48,6 +47,8 @@ async def test_connection(
         was attempted, includes a "healing" key with diagnosis and fix details.
     """
     try:
+        app = get_context(ctx)
+
         if client:
             location = resolve_config_path(MCPClient(client))
         else:
@@ -73,7 +74,7 @@ async def test_connection(
             )
 
         timeout = max(5, min(timeout_seconds, 60))
-        result = await test_server_connection(
+        result = await app.connection_tester.test_server_connection(
             server_name,
             target.config,
             timeout_seconds=timeout,
@@ -84,7 +85,7 @@ async def test_connection(
 
         # Attempt healing
         await ctx.info(f"Test failed for {server_name}, attempting self-healing...")
-        healing_result = await heal_and_retry(
+        healing_result = await app.healing.heal_and_retry(
             server_name,
             target.config,
             result,
@@ -99,7 +100,7 @@ async def test_connection(
         }
 
         if healing_result.fixed and healing_result.fixed_config is not None:
-            final_test = await test_server_connection(
+            final_test = await app.connection_tester.test_server_connection(
                 server_name,
                 healing_result.fixed_config,
                 timeout_seconds=timeout,

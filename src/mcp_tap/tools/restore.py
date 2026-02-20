@@ -9,11 +9,12 @@ from mcp.server.fastmcp import Context
 
 from mcp_tap.config.detection import resolve_config_locations
 from mcp_tap.config.writer import write_server_config
-from mcp_tap.connection.tester import test_server_connection
+from mcp_tap.connection.base import ConnectionTesterPort
 from mcp_tap.errors import McpTapError
-from mcp_tap.installer.resolver import resolve_installer
+from mcp_tap.installer.base import InstallerResolverPort
 from mcp_tap.lockfile.reader import read_lockfile
 from mcp_tap.models import ConfigLocation, LockedServer, Lockfile, RegistryType, ServerConfig
+from mcp_tap.tools._helpers import get_context
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +46,8 @@ async def restore(
         overall success.
     """
     try:
+        app = get_context(ctx)
+
         path = Path(project_path)
         lockfile_path = path / _LOCKFILE_NAME
 
@@ -87,7 +90,14 @@ async def restore(
         all_env_keys: list[dict[str, object]] = []
 
         for name, locked in lockfile.servers.items():
-            result = await _restore_server(name, locked, locations, ctx)
+            result = await _restore_server(
+                name,
+                locked,
+                locations,
+                ctx,
+                app.installer_resolver,
+                app.connection_tester,
+            )
             results.append(result)
 
             # Collect env vars that need manual setup
@@ -134,6 +144,8 @@ async def _restore_server(
     locked: LockedServer,
     locations: list[ConfigLocation],
     ctx: Context,
+    installer_resolver: InstallerResolverPort,
+    connection_tester: ConnectionTesterPort,
 ) -> dict[str, object]:
     """Restore a single server from its locked entry."""
     try:
@@ -141,7 +153,7 @@ async def _restore_server(
 
         # Resolve installer
         rt = RegistryType(locked.registry_type)
-        installer = await resolve_installer(rt)
+        installer = await installer_resolver.resolve_installer(rt)
 
         # Install the package at the locked version
         install_result = await installer.install(locked.package_identifier, locked.version)
@@ -170,7 +182,9 @@ async def _restore_server(
             )
 
         # Validate connection
-        test_result = await test_server_connection(name, server_config, timeout_seconds=15)
+        test_result = await connection_tester.test_server_connection(
+            name, server_config, timeout_seconds=15
+        )
 
         return {
             "server": name,
