@@ -1,7 +1,7 @@
 # Premium Quality Roadmap — mcp-tap para nível de produto cobrável
 
 - **Date**: 2026-02-19
-- **Status**: `open` (Fase 0 DONE, Fase 2 in progress)
+- **Status**: `open` (Fase 0 DONE, Fase 2 DONE)
 - **Branch**: `fix/2026-02-19-production-resilience` (Fase 0), `feature/2026-02-19-differentiation` (Fase 2)
 - **Priority**: `critical`
 
@@ -177,7 +177,7 @@ Sem corrigir esses 4 problemas, o produto não é confiável para uso real.
 | M3 | Env vars parser quebra com vírgula no valor | `tools/configure.py` | Regex smart split | S | ✅ DONE |
 | M4 | Import inline em loop | `tools/search.py:151` | Mover para topo do arquivo | Trivial | ✅ DONE |
 | M5 | `shutil.which()` sync no healing | `healing/fixer.py` | Aceitar como debt | Trivial | |
-| L1 | Regex de segredos com falsos positivos | `tools/list.py` | Heurísticas por prefixo | S | |
+| L1 | Regex de segredos com falsos positivos | `tools/list.py` | Heurísticas por prefixo | S | ✅ DONE |
 
 ---
 
@@ -199,7 +199,7 @@ Sem corrigir esses 4 problemas, o produto não é confiável para uso real.
 3. D3 — awesome-mcp-servers + Reddit
 4. D4 — Narrativa mcp-installer successor
 
-### Fase 2: Differentiate (in progress)
+### Fase 2: Differentiate ✅ COMPLETA (2026-02-20)
 1. ✅ I4 — Detecção de conflitos de tools (commit `6bccb7c`)
    - `ToolConflict` model + `detect_tool_conflicts()` + integração em check_health
    - 15 novos testes
@@ -208,13 +208,22 @@ Sem corrigir esses 4 problemas, o produto não é confiável para uso real.
    - ✅ Phase 1 Core: models, reader, writer, hasher, hooks configure/remove (commit `887814e`)
    - ✅ Phase 2: Drift detection (`differ.py`), verify tool, health check integration
    - ✅ Phase 3: Restore tool with dry_run, multi-client, env vars reporting
-3. ⬜ I3 — Stacks conversacionais (M, network effects)
-4. ⬜ I2 — Security gate (M, differentiator)
+3. ✅ I3 — Stacks conversacionais (commit `09d73b8`, PR #30)
+   - `apply_stack` tool + 3 built-in stacks + YAML format + dry_run
+   - 30 novos testes
+4. ✅ I2 — Security gate (commit `f671a22`, PR #29)
+   - Pre-install safety checks + SecurityRisk/Signal/Report models
+   - 39 novos testes
 
-### Fase 3: Enterprise-Grade (ongoing)
-1. A1+A2 — Ports formais + DI completo (L)
-2. H3 — Configure transacional (M)
-3. I5 — Workflow understanding (L)
+### Fase 3: Enterprise-Grade (in progress)
+1. ✅ I5 — Workflow understanding (commit on `feature/2026-02-20-workflow-understanding`)
+   - CI/CD config parser (GitHub Actions + GitLab CI)
+   - Detects databases, cloud providers, infrastructure tools from CI pipelines
+   - 107 novos testes + 3 integration tests with scan_project
+2. ✅ L1 — Regex de segredos com falsos positivos
+   - Layered detection: key name hints + provider prefixes + high-entropy (40+ chars)
+   - 26 novos testes
+3. A1+A2 — Ports formais + DI completo (L)
 
 ---
 

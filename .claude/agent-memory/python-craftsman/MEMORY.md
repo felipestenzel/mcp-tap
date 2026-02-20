@@ -56,6 +56,31 @@
 - Integrated into configure.py (_try_heal helper), test.py (auto_heal param), health.py (auto_heal param)
 - `_TIMEOUT_ESCALATION = (15, 30, 60)` for timeout category retries
 
+## Security Gate Module (I2)
+- `security/` package: `__init__.py`, `gate.py`
+- `run_security_gate(pkg, repo_url, command, args, http_client) -> SecurityReport`
+- `_check_command()` — sync, checks suspicious commands (bash/sh/curl/wget/cmd/powershell)
+- `_check_github()` — async, checks archived/stars/license/staleness via `fetch_repo_metadata`
+- Models: `SecurityRisk(StrEnum)`, `SecuritySignal`, `SecurityReport` (with `.passed`, `.warnings`, `.blockers`)
+- Integrated in configure.py: Step 3.5 between build config and write config
+- `_run_security_check()` helper is NON-BLOCKING (exceptions return None, install proceeds)
+- BLOCK signals prevent installation; WARN signals are logged but don't block
+- Uses `datetime.UTC` alias (not `timezone.utc`) per ruff UP017 rule
+- `TYPE_CHECKING` guard for `httpx` import in configure.py (only used in type hint)
+
+## Stacks Module (I3)
+- `stacks/` package: `__init__.py`, `loader.py`, `presets/*.yaml`
+- `load_stack(name_or_path: str) -> Stack` — loads builtin or file-based stacks
+- `list_builtin_stacks() -> list[dict[str, object]]` — metadata for all builtins
+- Built-in presets: data-science, web-dev, devops (YAML in `stacks/presets/`)
+- `_parse_yaml(text, source) -> Stack` — uses `yaml.safe_load` (PyYAML dep)
+- `apply_stack` tool in `tools/stack.py` — delegates to `configure_server` per server
+- Models: `StackServer` (name, package_identifier, registry_type, version, env_vars)
+- Models: `Stack` (name, description, servers, version, author)
+- `pyyaml>=6.0` added to project dependencies
+- Uses `importlib.resources.files()` for reading bundled YAML presets
+- Registered as destructive tool in server.py
+
 ## Conventions
 - Commit messages: English, no Co-Authored-By (per CLAUDE.md)
 - Comments/code in English, agent communication in Portuguese (BR)

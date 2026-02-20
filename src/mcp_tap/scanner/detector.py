@@ -24,6 +24,7 @@ from mcp_tap.models import (
     TechnologyCategory,
 )
 from mcp_tap.scanner.recommendations import recommend_servers
+from mcp_tap.scanner.workflow import parse_ci_configs
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +59,7 @@ async def scan_project(
     technologies: list[DetectedTechnology] = []
     env_var_names: list[str] = []
 
-    # Run all parsers concurrently
+    # Run all parsers concurrently (including CI/CD workflow analysis)
     results = await asyncio.gather(
         _parse_package_json(root),
         _parse_pyproject_toml(root),
@@ -68,6 +69,7 @@ async def scan_project(
         _detect_git_hosting(root),
         _detect_language_files(root),
         _detect_platform_files(root),
+        parse_ci_configs(root),
         return_exceptions=True,
     )
 

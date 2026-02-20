@@ -40,3 +40,17 @@ Differentiation: conversational, project-aware, self-healing, NO context switchi
 - v0.3: Lockfile + Security Gate
 - v0.4: Stacks + Workflow Understanding
 - v0.5: Conflict Detection + Context Budget
+
+## Lockfile Spec Decisions (2026-02-19)
+- Spec at: `docs/specs/mcp-tap-lockfile-v1.md`
+- Format: JSON (ecosystem alignment, no new deps)
+- File: `mcp-tap.lock` in project root, COMMITTED to git
+- `env_keys` only (NEVER values) -- enforced at model level
+- `tools_hash` = sha256 of sorted pipe-joined tool names for fast drift detection
+- `integrity` = sha256 of package (npm registry, PyPI JSON API, OCI manifest)
+- Lockfile updated as side effect of existing tools (configure, remove, health, test)
+- New tools planned: `restore` (recreate setup) + `verify` (drift detection)
+- New package: `src/mcp_tap/lockfile/` (reader, writer, hasher, differ)
+- 3-phase implementation: Core -> Verification -> Restore
+- v1 is advisory (warn on drift), v2 adds strict mode (`--frozen`)
+- Prior art studied: npm package-lock.json, deno.lock, Terraform .terraform.lock.hcl
