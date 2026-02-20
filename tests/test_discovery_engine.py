@@ -631,6 +631,41 @@ class TestDetectArchetypes:
         names = {a.name for a in archetypes}
         assert "ecommerce" in names
 
+    def test_python_library_detected_with_build_backend(self) -> None:
+        """Python library: Python + build backend."""
+        techs = self._techs("python", "hatchling")
+        archetypes = detect_archetypes(techs)
+        names = {a.name for a in archetypes}
+        assert "python_library" in names
+
+    def test_python_library_detected_with_test_framework(self) -> None:
+        """Python library: Python + test framework."""
+        techs = self._techs("python", "pytest")
+        archetypes = detect_archetypes(techs)
+        names = {a.name for a in archetypes}
+        assert "python_library" in names
+
+    def test_python_library_detected_full_stack(self) -> None:
+        """Python library: Python + hatchling + pytest (mcp-tap profile)."""
+        techs = self._techs("python", "hatchling", "pytest")
+        archetypes = detect_archetypes(techs)
+        names = {a.name for a in archetypes}
+        assert "python_library" in names
+
+    def test_python_library_has_useful_extra_queries(self) -> None:
+        """Python library archetype should include relevant search queries."""
+        techs = self._techs("python", "pytest")
+        archetypes = detect_archetypes(techs)
+        lib = next(a for a in archetypes if a.name == "python_library")
+        assert "notifications" in lib.extra_search_queries
+        assert "pypi" in lib.extra_search_queries
+
+    def test_python_library_not_triggered_by_python_alone(self) -> None:
+        """Single 'python' technology should not trigger python_library archetype."""
+        techs = self._techs("python")
+        archetypes = detect_archetypes(techs)
+        assert archetypes == []
+
     def test_no_match_single_tech(self) -> None:
         """Single technology should not match any archetype."""
         techs = self._techs("python")
