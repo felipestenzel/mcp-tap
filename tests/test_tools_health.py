@@ -14,14 +14,26 @@ from mcp_tap.models import (
     ServerConfig,
     ServerHealth,
 )
+from mcp_tap.server import AppContext
 from mcp_tap.tools.health import _check_all_servers, _check_single_server, check_health
 
 # --- Helpers ---------------------------------------------------------------
 
 
-def _make_ctx() -> MagicMock:
-    """Build a mock Context with async info/error methods."""
+def _make_ctx(
+    connection_tester: MagicMock | None = None,
+    healing: MagicMock | None = None,
+) -> MagicMock:
+    """Build a mock Context with AppContext containing injected adapters."""
+    app = MagicMock(spec=AppContext)
+    app.connection_tester = connection_tester or MagicMock()
+    if connection_tester is None:
+        app.connection_tester.test_server_connection = AsyncMock()
+    app.healing = healing or MagicMock()
+    if healing is None:
+        app.healing.heal_and_retry = AsyncMock()
     ctx = MagicMock()
+    ctx.request_context.lifespan_context = app
     ctx.info = AsyncMock()
     ctx.error = AsyncMock()
     return ctx
@@ -73,13 +85,27 @@ def _timeout_connection(server_name: str = "test-server") -> ConnectionTestResul
     )
 
 
+def _mock_connection_tester(
+    side_effect: list | None = None,
+    return_value: ConnectionTestResult | None = None,
+) -> MagicMock:
+    """Create a mock connection tester with test_server_connection configured."""
+    tester = MagicMock()
+    mock_fn = AsyncMock()
+    if side_effect is not None:
+        mock_fn.side_effect = side_effect
+    elif return_value is not None:
+        mock_fn.return_value = return_value
+    tester.test_server_connection = mock_fn
+    return tester
+
+
 # === check_health Tool Tests ================================================
 
 
 class TestHealthAllHealthy:
     """Tests for check_health when all servers are healthy."""
 
-    @patch("mcp_tap.tools.health.test_server_connection")
     @patch("mcp_tap.tools.health.parse_servers")
     @patch("mcp_tap.tools.health.read_config", return_value={"mcpServers": {}})
     @patch("mcp_tap.tools.health.detect_clients")
@@ -88,7 +114,6 @@ class TestHealthAllHealthy:
         mock_detect: MagicMock,
         _mock_read: MagicMock,
         mock_parse: MagicMock,
-        mock_test_conn: AsyncMock,
     ):
         """Should report healthy=3, unhealthy=0 when all servers connect."""
         mock_detect.return_value = [_fake_location()]
@@ -98,13 +123,15 @@ class TestHealthAllHealthy:
             _installed_server("server-c"),
         ]
         mock_parse.return_value = servers
-        mock_test_conn.side_effect = [
-            _ok_connection("server-a"),
-            _ok_connection("server-b"),
-            _ok_connection("server-c"),
-        ]
 
-        ctx = _make_ctx()
+        tester = _mock_connection_tester(
+            side_effect=[
+                _ok_connection("server-a"),
+                _ok_connection("server-b"),
+                _ok_connection("server-c"),
+            ]
+        )
+        ctx = _make_ctx(connection_tester=tester)
         result = await check_health(ctx)
 
         assert result["total"] == 3
@@ -115,7 +142,6 @@ class TestHealthAllHealthy:
 class TestHealthMixed:
     """Tests for check_health with a mix of healthy and unhealthy servers."""
 
-    @patch("mcp_tap.tools.health.test_server_connection")
     @patch("mcp_tap.tools.health.parse_servers")
     @patch("mcp_tap.tools.health.read_config", return_value={"mcpServers": {}})
     @patch("mcp_tap.tools.health.detect_clients")
@@ -124,7 +150,6 @@ class TestHealthMixed:
         mock_detect: MagicMock,
         _mock_read: MagicMock,
         mock_parse: MagicMock,
-        mock_test_conn: AsyncMock,
     ):
         """Should report healthy=2, unhealthy=1 when one server fails."""
         mock_detect.return_value = [_fake_location()]
@@ -134,13 +159,15 @@ class TestHealthMixed:
             _installed_server("server-c"),
         ]
         mock_parse.return_value = servers
-        mock_test_conn.side_effect = [
-            _ok_connection("server-a"),
-            _ok_connection("server-b"),
-            _failed_connection("server-c"),
-        ]
 
-        ctx = _make_ctx()
+        tester = _mock_connection_tester(
+            side_effect=[
+                _ok_connection("server-a"),
+                _ok_connection("server-b"),
+                _failed_connection("server-c"),
+            ]
+        )
+        ctx = _make_ctx(connection_tester=tester)
         result = await check_health(ctx)
 
         assert result["total"] == 3
@@ -151,7 +178,6 @@ class TestHealthMixed:
 class TestHealthAllUnhealthy:
     """Tests for check_health when all servers fail."""
 
-    @patch("mcp_tap.tools.health.test_server_connection")
     @patch("mcp_tap.tools.health.parse_servers")
     @patch("mcp_tap.tools.health.read_config", return_value={"mcpServers": {}})
     @patch("mcp_tap.tools.health.detect_clients")
@@ -160,7 +186,6 @@ class TestHealthAllUnhealthy:
         mock_detect: MagicMock,
         _mock_read: MagicMock,
         mock_parse: MagicMock,
-        mock_test_conn: AsyncMock,
     ):
         """Should report healthy=0, unhealthy=2 when all servers fail."""
         mock_detect.return_value = [_fake_location()]
@@ -169,12 +194,14 @@ class TestHealthAllUnhealthy:
             _installed_server("server-b"),
         ]
         mock_parse.return_value = servers
-        mock_test_conn.side_effect = [
-            _failed_connection("server-a"),
-            _failed_connection("server-b"),
-        ]
 
-        ctx = _make_ctx()
+        tester = _mock_connection_tester(
+            side_effect=[
+                _failed_connection("server-a"),
+                _failed_connection("server-b"),
+            ]
+        )
+        ctx = _make_ctx(connection_tester=tester)
         result = await check_health(ctx)
 
         assert result["total"] == 2
@@ -223,7 +250,6 @@ class TestHealthNoClient:
 class TestHealthServerDetails:
     """Tests for per-server detail fields in the health report."""
 
-    @patch("mcp_tap.tools.health.test_server_connection")
     @patch("mcp_tap.tools.health.parse_servers")
     @patch("mcp_tap.tools.health.read_config", return_value={"mcpServers": {}})
     @patch("mcp_tap.tools.health.detect_clients")
@@ -232,17 +258,15 @@ class TestHealthServerDetails:
         mock_detect: MagicMock,
         _mock_read: MagicMock,
         mock_parse: MagicMock,
-        mock_test_conn: AsyncMock,
     ):
         """Should include name, status, tools_count for healthy server."""
         mock_detect.return_value = [_fake_location()]
         mock_parse.return_value = [_installed_server("pg-mcp")]
-        mock_test_conn.return_value = _ok_connection(
-            "pg-mcp",
-            tools=["read_query", "write_query"],
-        )
 
-        ctx = _make_ctx()
+        tester = _mock_connection_tester(
+            return_value=_ok_connection("pg-mcp", tools=["read_query", "write_query"])
+        )
+        ctx = _make_ctx(connection_tester=tester)
         result = await check_health(ctx)
 
         server = result["servers"][0]
@@ -251,7 +275,6 @@ class TestHealthServerDetails:
         assert server["tools_count"] == 2
         assert server["error"] == ""
 
-    @patch("mcp_tap.tools.health.test_server_connection")
     @patch("mcp_tap.tools.health.parse_servers")
     @patch("mcp_tap.tools.health.read_config", return_value={"mcpServers": {}})
     @patch("mcp_tap.tools.health.detect_clients")
@@ -260,17 +283,15 @@ class TestHealthServerDetails:
         mock_detect: MagicMock,
         _mock_read: MagicMock,
         mock_parse: MagicMock,
-        mock_test_conn: AsyncMock,
     ):
         """Should include name, status='unhealthy', and error for failed server."""
         mock_detect.return_value = [_fake_location()]
         mock_parse.return_value = [_installed_server("broken-mcp")]
-        mock_test_conn.return_value = _failed_connection(
-            "broken-mcp",
-            error="Connection refused",
-        )
 
-        ctx = _make_ctx()
+        tester = _mock_connection_tester(
+            return_value=_failed_connection("broken-mcp", error="Connection refused")
+        )
+        ctx = _make_ctx(connection_tester=tester)
         result = await check_health(ctx)
 
         server = result["servers"][0]
@@ -283,7 +304,6 @@ class TestHealthServerDetails:
 class TestHealthToolsListed:
     """Tests that healthy servers have their tools list populated."""
 
-    @patch("mcp_tap.tools.health.test_server_connection")
     @patch("mcp_tap.tools.health.parse_servers")
     @patch("mcp_tap.tools.health.read_config", return_value={"mcpServers": {}})
     @patch("mcp_tap.tools.health.detect_clients")
@@ -292,15 +312,16 @@ class TestHealthToolsListed:
         mock_detect: MagicMock,
         _mock_read: MagicMock,
         mock_parse: MagicMock,
-        mock_test_conn: AsyncMock,
     ):
         """Should populate tools list for a healthy server."""
         mock_detect.return_value = [_fake_location()]
         mock_parse.return_value = [_installed_server("pg-mcp")]
         expected_tools = ["read_query", "write_query", "create_table"]
-        mock_test_conn.return_value = _ok_connection("pg-mcp", tools=expected_tools)
 
-        ctx = _make_ctx()
+        tester = _mock_connection_tester(
+            return_value=_ok_connection("pg-mcp", tools=expected_tools)
+        )
+        ctx = _make_ctx(connection_tester=tester)
         result = await check_health(ctx)
 
         server = result["servers"][0]
@@ -311,7 +332,6 @@ class TestHealthToolsListed:
 class TestHealthTimeoutReported:
     """Tests that server timeouts are reported with status='timeout'."""
 
-    @patch("mcp_tap.tools.health.test_server_connection")
     @patch("mcp_tap.tools.health.parse_servers")
     @patch("mcp_tap.tools.health.read_config", return_value={"mcpServers": {}})
     @patch("mcp_tap.tools.health.detect_clients")
@@ -320,14 +340,13 @@ class TestHealthTimeoutReported:
         mock_detect: MagicMock,
         _mock_read: MagicMock,
         mock_parse: MagicMock,
-        mock_test_conn: AsyncMock,
     ):
         """Should set status='timeout' for server that times out."""
         mock_detect.return_value = [_fake_location()]
         mock_parse.return_value = [_installed_server("slow-mcp")]
-        mock_test_conn.return_value = _timeout_connection("slow-mcp")
 
-        ctx = _make_ctx()
+        tester = _mock_connection_tester(return_value=_timeout_connection("slow-mcp"))
+        ctx = _make_ctx(connection_tester=tester)
         result = await check_health(ctx)
 
         server = result["servers"][0]
@@ -338,34 +357,31 @@ class TestHealthTimeoutReported:
 class TestHealthConcurrent:
     """Tests that check_health runs server checks concurrently."""
 
-    @patch("mcp_tap.tools.health.test_server_connection")
-    async def test_asyncio_gather_is_used(self, mock_test_conn: AsyncMock):
+    async def test_asyncio_gather_is_used(self):
         """Should use asyncio.gather to run checks concurrently."""
-        # Create multiple servers and verify they are all checked
         servers = [
             _installed_server("server-a"),
             _installed_server("server-b"),
             _installed_server("server-c"),
         ]
-        mock_test_conn.side_effect = [
-            _ok_connection("server-a"),
-            _ok_connection("server-b"),
-            _ok_connection("server-c"),
-        ]
+        tester = _mock_connection_tester(
+            side_effect=[
+                _ok_connection("server-a"),
+                _ok_connection("server-b"),
+                _ok_connection("server-c"),
+            ]
+        )
 
-        # Call the internal _check_all_servers which uses asyncio.gather
-        results = await _check_all_servers(servers, timeout_seconds=15)
+        results = await _check_all_servers(servers, timeout_seconds=15, connection_tester=tester)
 
         assert len(results) == 3
-        assert mock_test_conn.call_count == 3
-        # All should be healthy
+        assert tester.test_server_connection.call_count == 3
         assert all(r.status == "healthy" for r in results)
 
 
 class TestHealthExplicitClient:
     """Tests for passing client parameter explicitly."""
 
-    @patch("mcp_tap.tools.health.test_server_connection")
     @patch("mcp_tap.tools.health.parse_servers")
     @patch("mcp_tap.tools.health.read_config", return_value={"mcpServers": {}})
     @patch("mcp_tap.tools.health.resolve_config_path")
@@ -374,14 +390,13 @@ class TestHealthExplicitClient:
         mock_resolve: MagicMock,
         _mock_read: MagicMock,
         mock_parse: MagicMock,
-        mock_test_conn: AsyncMock,
     ):
         """Should use resolve_config_path when client is provided explicitly."""
         mock_resolve.return_value = _fake_location(client=MCPClient.CURSOR)
         mock_parse.return_value = [_installed_server("my-server")]
-        mock_test_conn.return_value = _ok_connection("my-server")
 
-        ctx = _make_ctx()
+        tester = _mock_connection_tester(return_value=_ok_connection("my-server"))
+        ctx = _make_ctx(connection_tester=tester)
         result = await check_health(ctx, client="cursor")
 
         mock_resolve.assert_called_once_with(MCPClient.CURSOR)
@@ -395,22 +410,20 @@ class TestHealthExplicitClient:
 class TestCheckAllServersExceptionHandling:
     """Tests for _check_all_servers exception handling via asyncio.gather."""
 
-    @patch("mcp_tap.tools.health.test_server_connection")
-    async def test_exception_in_one_server_does_not_block_others(
-        self,
-        mock_test_conn: AsyncMock,
-    ):
+    async def test_exception_in_one_server_does_not_block_others(self):
         """Should handle exception from one server and still check the rest."""
         servers = [
             _installed_server("good-server"),
             _installed_server("bad-server"),
         ]
-        mock_test_conn.side_effect = [
-            _ok_connection("good-server"),
-            RuntimeError("Unexpected boom"),
-        ]
+        tester = _mock_connection_tester(
+            side_effect=[
+                _ok_connection("good-server"),
+                RuntimeError("Unexpected boom"),
+            ]
+        )
 
-        results = await _check_all_servers(servers, timeout_seconds=15)
+        results = await _check_all_servers(servers, timeout_seconds=15, connection_tester=tester)
 
         assert len(results) == 2
         assert results[0].status == "healthy"
@@ -424,43 +437,38 @@ class TestCheckAllServersExceptionHandling:
 class TestCheckSingleServer:
     """Tests for the _check_single_server helper."""
 
-    @patch("mcp_tap.tools.health.test_server_connection")
-    async def test_healthy_server(self, mock_test_conn: AsyncMock):
+    async def test_healthy_server(self):
         """Should return ServerHealth with status='healthy' on success."""
         server = _installed_server("pg-mcp")
-        mock_test_conn.return_value = _ok_connection(
-            "pg-mcp",
-            tools=["read_query"],
+        tester = _mock_connection_tester(
+            return_value=_ok_connection("pg-mcp", tools=["read_query"])
         )
 
-        result = await _check_single_server(server, timeout_seconds=15)
+        result = await _check_single_server(server, timeout_seconds=15, connection_tester=tester)
 
         assert isinstance(result, ServerHealth)
         assert result.status == "healthy"
         assert result.tools_count == 1
         assert result.tools == ["read_query"]
 
-    @patch("mcp_tap.tools.health.test_server_connection")
-    async def test_unhealthy_server(self, mock_test_conn: AsyncMock):
+    async def test_unhealthy_server(self):
         """Should return ServerHealth with status='unhealthy' on failure."""
         server = _installed_server("broken-mcp")
-        mock_test_conn.return_value = _failed_connection(
-            "broken-mcp",
-            error="Command not found: npx",
+        tester = _mock_connection_tester(
+            return_value=_failed_connection("broken-mcp", error="Command not found: npx")
         )
 
-        result = await _check_single_server(server, timeout_seconds=15)
+        result = await _check_single_server(server, timeout_seconds=15, connection_tester=tester)
 
         assert result.status == "unhealthy"
         assert "Command not found" in result.error
 
-    @patch("mcp_tap.tools.health.test_server_connection")
-    async def test_timeout_server(self, mock_test_conn: AsyncMock):
+    async def test_timeout_server(self):
         """Should return ServerHealth with status='timeout' for timeout error."""
         server = _installed_server("slow-mcp")
-        mock_test_conn.return_value = _timeout_connection("slow-mcp")
+        tester = _mock_connection_tester(return_value=_timeout_connection("slow-mcp"))
 
-        result = await _check_single_server(server, timeout_seconds=15)
+        result = await _check_single_server(server, timeout_seconds=15, connection_tester=tester)
 
         assert result.status == "timeout"
 
@@ -509,7 +517,6 @@ class TestHealthUnexpectedErrors:
 class TestHealthTimeoutClamping:
     """Tests for the timeout clamping logic (5-60 seconds)."""
 
-    @patch("mcp_tap.tools.health.test_server_connection")
     @patch("mcp_tap.tools.health.parse_servers")
     @patch("mcp_tap.tools.health.read_config", return_value={"mcpServers": {}})
     @patch("mcp_tap.tools.health.detect_clients")
@@ -518,21 +525,19 @@ class TestHealthTimeoutClamping:
         mock_detect: MagicMock,
         _mock_read: MagicMock,
         mock_parse: MagicMock,
-        mock_test_conn: AsyncMock,
     ):
         """Should clamp timeout_seconds to 5 when below minimum."""
         mock_detect.return_value = [_fake_location()]
         mock_parse.return_value = [_installed_server("s")]
-        mock_test_conn.return_value = _ok_connection("s")
 
-        ctx = _make_ctx()
+        tester = _mock_connection_tester(return_value=_ok_connection("s"))
+        ctx = _make_ctx(connection_tester=tester)
         await check_health(ctx, timeout_seconds=1)
 
         # Verify test_server_connection was called with clamped timeout (5)
-        call_kwargs = mock_test_conn.call_args
+        call_kwargs = tester.test_server_connection.call_args
         assert call_kwargs[1]["timeout_seconds"] == 5
 
-    @patch("mcp_tap.tools.health.test_server_connection")
     @patch("mcp_tap.tools.health.parse_servers")
     @patch("mcp_tap.tools.health.read_config", return_value={"mcpServers": {}})
     @patch("mcp_tap.tools.health.detect_clients")
@@ -541,17 +546,16 @@ class TestHealthTimeoutClamping:
         mock_detect: MagicMock,
         _mock_read: MagicMock,
         mock_parse: MagicMock,
-        mock_test_conn: AsyncMock,
     ):
         """Should clamp timeout_seconds to 60 when above maximum."""
         mock_detect.return_value = [_fake_location()]
         mock_parse.return_value = [_installed_server("s")]
-        mock_test_conn.return_value = _ok_connection("s")
 
-        ctx = _make_ctx()
+        tester = _mock_connection_tester(return_value=_ok_connection("s"))
+        ctx = _make_ctx(connection_tester=tester)
         await check_health(ctx, timeout_seconds=999)
 
-        call_kwargs = mock_test_conn.call_args
+        call_kwargs = tester.test_server_connection.call_args
         assert call_kwargs[1]["timeout_seconds"] == 60
 
 
@@ -567,11 +571,7 @@ class TestHealthSemaphoreConcurrency:
 
         assert _MAX_CONCURRENT_CHECKS == 5
 
-    @patch("mcp_tap.tools.health.test_server_connection")
-    async def test_semaphore_limits_concurrency_to_five(
-        self,
-        mock_test_conn: AsyncMock,
-    ):
+    async def test_semaphore_limits_concurrency_to_five(self):
         """Should run at most 5 checks concurrently when given 10 servers."""
         max_concurrent = 0
         current_concurrent = 0
@@ -593,47 +593,44 @@ class TestHealthSemaphoreConcurrency:
             server_name = args[0] if args else kwargs.get("server_name", "unknown")
             return _ok_connection(server_name)
 
-        mock_test_conn.side_effect = _track_concurrency
+        tester = MagicMock()
+        tester.test_server_connection = AsyncMock(side_effect=_track_concurrency)
 
         servers = [_installed_server(f"server-{i}") for i in range(10)]
-        results = await _check_all_servers(servers, timeout_seconds=15)
+        results = await _check_all_servers(servers, timeout_seconds=15, connection_tester=tester)
 
         assert len(results) == 10
         assert max_concurrent <= 5
-        assert mock_test_conn.call_count == 10
+        assert tester.test_server_connection.call_count == 10
 
-    @patch("mcp_tap.tools.health.test_server_connection")
-    async def test_all_servers_checked_with_semaphore(
-        self,
-        mock_test_conn: AsyncMock,
-    ):
+    async def test_all_servers_checked_with_semaphore(self):
         """Should check all servers even with semaphore limiting."""
         servers = [_installed_server(f"server-{i}") for i in range(8)]
-        mock_test_conn.side_effect = [_ok_connection(f"server-{i}") for i in range(8)]
+        tester = _mock_connection_tester(
+            side_effect=[_ok_connection(f"server-{i}") for i in range(8)]
+        )
 
-        results = await _check_all_servers(servers, timeout_seconds=15)
+        results = await _check_all_servers(servers, timeout_seconds=15, connection_tester=tester)
 
         assert len(results) == 8
         assert all(r.status == "healthy" for r in results)
 
-    @patch("mcp_tap.tools.health.test_server_connection")
-    async def test_semaphore_with_failures_still_checks_all(
-        self,
-        mock_test_conn: AsyncMock,
-    ):
+    async def test_semaphore_with_failures_still_checks_all(self):
         """Should check all servers when some fail under semaphore."""
         servers = [_installed_server(f"server-{i}") for i in range(7)]
-        mock_test_conn.side_effect = [
-            _ok_connection("server-0"),
-            _failed_connection("server-1"),
-            _ok_connection("server-2"),
-            RuntimeError("boom"),
-            _ok_connection("server-4"),
-            _failed_connection("server-5"),
-            _ok_connection("server-6"),
-        ]
+        tester = _mock_connection_tester(
+            side_effect=[
+                _ok_connection("server-0"),
+                _failed_connection("server-1"),
+                _ok_connection("server-2"),
+                RuntimeError("boom"),
+                _ok_connection("server-4"),
+                _failed_connection("server-5"),
+                _ok_connection("server-6"),
+            ]
+        )
 
-        results = await _check_all_servers(servers, timeout_seconds=15)
+        results = await _check_all_servers(servers, timeout_seconds=15, connection_tester=tester)
 
         assert len(results) == 7
-        assert mock_test_conn.call_count == 7
+        assert tester.test_server_connection.call_count == 7

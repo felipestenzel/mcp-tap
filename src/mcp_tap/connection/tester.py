@@ -69,6 +69,20 @@ async def test_server_connection(
         )
 
 
+class DefaultConnectionTester:
+    """Adapter for ConnectionTesterPort."""
+
+    async def test_server_connection(
+        self,
+        server_name: str,
+        config: ServerConfig,
+        *,
+        timeout_seconds: int = 15,
+    ) -> ConnectionTestResult:
+        """Spawn an MCP server, connect via stdio, and call list_tools()."""
+        return await test_server_connection(server_name, config, timeout_seconds=timeout_seconds)
+
+
 async def _run_connection_test(
     server_name: str,
     params: StdioServerParameters,

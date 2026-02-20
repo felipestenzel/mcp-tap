@@ -16,6 +16,7 @@ from mcp_tap.models import (
     TechnologyCategory,
     Transport,
 )
+from mcp_tap.server import AppContext
 from mcp_tap.tools.search import (
     _apply_project_scoring,
     _scan_project_safe,
@@ -32,14 +33,17 @@ EMPTY = FIXTURES_DIR / "empty_project"
 
 
 def _make_ctx() -> MagicMock:
-    """Build a mock Context with a mock registry in lifespan_context."""
+    """Build a mock Context with AppContext-shaped lifespan_context."""
     ctx = MagicMock()
     ctx.info = AsyncMock()
     ctx.error = AsyncMock()
-    # Create app_ctx with a mock registry
-    app_ctx = MagicMock()
-    app_ctx.registry = MagicMock()
-    ctx.request_context.lifespan_context = app_ctx
+    # Create an AppContext-like mock with all expected ports
+    app = MagicMock(spec=AppContext)
+    app.registry = MagicMock()
+    app.github_metadata = MagicMock()
+    # Default: fetch_repo_metadata returns None (no maturity data)
+    app.github_metadata.fetch_repo_metadata = AsyncMock(return_value=None)
+    ctx.request_context.lifespan_context = app
     return ctx
 
 

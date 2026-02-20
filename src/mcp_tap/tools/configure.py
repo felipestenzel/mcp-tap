@@ -6,19 +6,14 @@ import logging
 import re
 from dataclasses import asdict
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 from mcp.server.fastmcp import Context
 
-if TYPE_CHECKING:
-    import httpx
-
 from mcp_tap.config.detection import resolve_config_locations
 from mcp_tap.config.writer import write_server_config
-from mcp_tap.connection.tester import test_server_connection
+from mcp_tap.connection.base import ConnectionTesterPort
 from mcp_tap.errors import McpTapError
-from mcp_tap.healing.retry import heal_and_retry
-from mcp_tap.installer.resolver import resolve_installer
+from mcp_tap.healing.base import HealingOrchestratorPort
 from mcp_tap.models import (
     ConfigLocation,
     ConfigureResult,
@@ -27,7 +22,8 @@ from mcp_tap.models import (
     SecurityReport,
     ServerConfig,
 )
-from mcp_tap.security.gate import run_security_gate
+from mcp_tap.security.base import SecurityGatePort
+from mcp_tap.tools._helpers import get_context
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +75,8 @@ async def configure_server(
         tools_discovered. Multi-client calls also include per_client_results.
     """
     try:
+        app = get_context(ctx)
+
         # Step 1: Resolve target config locations
         locations = resolve_config_locations(clients, scope=scope, project_path=project_path)
         if not locations:
@@ -97,7 +95,7 @@ async def configure_server(
 
         # Step 2: Resolve installer and install the package (once)
         rt = RegistryType(registry_type)
-        installer = await resolve_installer(rt)
+        installer = await app.installer_resolver.resolve_installer(rt)
 
         await ctx.info(f"Installing {package_identifier} via {rt.value}...")
         install_result = await installer.install(package_identifier, version)
@@ -130,6 +128,7 @@ async def configure_server(
             command=command,
             args=args,
             ctx=ctx,
+            security_gate=app.security_gate,
         )
         if security_report and not security_report.passed:
             return asdict(
@@ -148,9 +147,23 @@ async def configure_server(
 
         # Step 4: Write config to each target client
         if len(locations) == 1:
-            result = await _configure_single(server_name, server_config, locations[0], ctx)
+            result = await _configure_single(
+                server_name,
+                server_config,
+                locations[0],
+                ctx,
+                app.connection_tester,
+                app.healing,
+            )
         else:
-            result = await _configure_multi(server_name, server_config, locations, ctx)
+            result = await _configure_multi(
+                server_name,
+                server_config,
+                locations,
+                ctx,
+                app.connection_tester,
+                app.healing,
+            )
 
         # Step 5: Update lockfile if project_path is available
         if project_path and result.get("success"):
@@ -194,11 +207,13 @@ async def _configure_single(
     server_config: ServerConfig,
     location: ConfigLocation,
     ctx: Context,
+    connection_tester: ConnectionTesterPort,
+    healing: HealingOrchestratorPort,
 ) -> dict[str, object]:
     """Configure a server for a single client. Returns a ConfigureResult dict."""
     # Validate the connection BEFORE writing config
     tools_discovered, validation_passed, tool_summary, test_result = await _validate(
-        server_name, server_config, ctx
+        server_name, server_config, ctx, connection_tester
     )
 
     # Attempt healing if validation failed
@@ -206,7 +221,7 @@ async def _configure_single(
     effective_config = server_config
     if not validation_passed:
         healed, effective_config, healing_info = await _try_heal(
-            server_name, server_config, test_result, ctx
+            server_name, server_config, test_result, ctx, healing
         )
         if healed:
             validation_passed = True
@@ -274,11 +289,13 @@ async def _configure_multi(
     server_config: ServerConfig,
     locations: list[ConfigLocation],
     ctx: Context,
+    connection_tester: ConnectionTesterPort,
+    healing: HealingOrchestratorPort,
 ) -> dict[str, object]:
     """Configure a server for multiple clients. Returns aggregated result."""
     # Validate once (same binary, same config)
     tools_discovered, validation_passed, tool_summary, test_result = await _validate(
-        server_name, server_config, ctx
+        server_name, server_config, ctx, connection_tester
     )
 
     # Attempt healing if validation failed
@@ -286,7 +303,7 @@ async def _configure_multi(
     effective_config = server_config
     if not validation_passed:
         healed, effective_config, healing_info = await _try_heal(
-            server_name, server_config, test_result, ctx
+            server_name, server_config, test_result, ctx, healing
         )
         if healed:
             validation_passed = True
@@ -378,6 +395,7 @@ async def _validate(
     server_name: str,
     server_config: ServerConfig,
     ctx: Context,
+    connection_tester: ConnectionTesterPort,
 ) -> tuple[list[str], bool, str, ConnectionTestResult]:
     """Validate a server connection.
 
@@ -387,7 +405,9 @@ async def _validate(
         directly to the healing loop without spawning a redundant process.
     """
     await ctx.info(f"Validating {server_name} connection...")
-    test_result = await test_server_connection(server_name, server_config, timeout_seconds=15)
+    test_result = await connection_tester.test_server_connection(
+        server_name, server_config, timeout_seconds=15
+    )
 
     if test_result.success:
         tools = list(test_result.tools_discovered)
@@ -411,6 +431,7 @@ async def _try_heal(
     server_config: ServerConfig,
     original_error: ConnectionTestResult,
     ctx: Context,
+    healing: HealingOrchestratorPort,
 ) -> tuple[bool, ServerConfig, dict[str, object]]:
     """Attempt self-healing after a validation failure.
 
@@ -420,6 +441,7 @@ async def _try_heal(
         original_error: The ConnectionTestResult from the failed validation.
             Reused directly to avoid spawning a redundant server process.
         ctx: MCP context for progress messages.
+        healing: Healing orchestrator adapter for diagnose-fix-retry loop.
 
     Returns:
         Tuple of (healed, effective_config, healing_info_dict).
@@ -428,7 +450,7 @@ async def _try_heal(
     """
     await ctx.info(f"Attempting self-healing for {server_name}...")
 
-    healing_result = await heal_and_retry(
+    healing_result = await healing.heal_and_retry(
         server_name,
         server_config,
         original_error,
@@ -459,22 +481,15 @@ async def _run_security_check(
     command: str,
     args: list[str],
     ctx: Context,
+    security_gate: SecurityGatePort,
 ) -> SecurityReport | None:
     """Run security gate. Returns None if check fails (non-blocking)."""
     try:
-        http_client: httpx.AsyncClient | None = None
-        try:
-            app_ctx = ctx.request_context.lifespan_context
-            http_client = app_ctx.http_client
-        except Exception:
-            pass
-
-        report = await run_security_gate(
+        report = await security_gate.run_security_gate(
             package_identifier=package_identifier,
             repository_url=repository_url,
             command=command,
             args=args,
-            http_client=http_client,
         )
 
         if report.warnings:

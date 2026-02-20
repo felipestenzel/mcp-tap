@@ -6,11 +6,10 @@ import asyncio
 import logging
 from dataclasses import asdict
 
-import httpx
 from mcp.server.fastmcp import Context
 
 from mcp_tap.errors import McpTapError
-from mcp_tap.evaluation.github import fetch_repo_metadata
+from mcp_tap.evaluation.base import GitHubMetadataPort
 from mcp_tap.evaluation.scorer import score_maturity
 from mcp_tap.models import (
     MaturitySignals,
@@ -21,6 +20,7 @@ from mcp_tap.models import (
 )
 from mcp_tap.scanner.credentials import map_credentials
 from mcp_tap.scanner.scoring import relevance_sort_key, score_result
+from mcp_tap.tools._helpers import get_context
 
 logger = logging.getLogger(__name__)
 
@@ -63,9 +63,8 @@ async def search_servers(
         When evaluate is True, also includes maturity.
     """
     try:
-        app_ctx = ctx.request_context.lifespan_context
-        registry = app_ctx.registry
-        http_client = app_ctx.http_client
+        app = get_context(ctx)
+        registry = app.registry
 
         servers = await registry.search(query, limit=min(limit, 50))
 
@@ -104,7 +103,7 @@ async def search_servers(
 
         # Fetch maturity signals from GitHub
         if evaluate:
-            results = await _apply_maturity(results, http_client)
+            results = await _apply_maturity(results, app.github_metadata)
 
         return results
     except McpTapError as exc:
@@ -189,12 +188,9 @@ def _apply_credential_status(
 
 async def _apply_maturity(
     results: list[dict[str, object]],
-    http_client: object,
+    github_metadata: GitHubMetadataPort,
 ) -> list[dict[str, object]]:
     """Fetch GitHub maturity signals and add scores to results."""
-    if not isinstance(http_client, httpx.AsyncClient):
-        return results
-
     # Deduplicate repos to avoid duplicate API calls
     repo_urls: dict[str, int] = {}
     for i, result in enumerate(results):
@@ -207,7 +203,7 @@ async def _apply_maturity(
 
     # Fetch signals concurrently
     async def _fetch_one(url: str) -> tuple[str, MaturitySignals | None]:
-        signals = await fetch_repo_metadata(url, http_client)
+        signals = await github_metadata.fetch_repo_metadata(url)
         return url, signals
 
     tasks = [_fetch_one(url) for url in repo_urls]
