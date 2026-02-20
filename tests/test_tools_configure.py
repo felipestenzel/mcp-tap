@@ -316,14 +316,14 @@ class TestConfigureValidationFails:
     @patch("mcp_tap.tools.configure.write_server_config")
     @patch("mcp_tap.tools.configure.resolve_installer")
     @patch("mcp_tap.tools.configure.resolve_config_locations")
-    async def test_validation_failure_still_succeeds(
+    async def test_validation_failure_returns_failure(
         self,
         mock_locations: MagicMock,
         mock_resolve_installer: AsyncMock,
         mock_write: MagicMock,
         mock_test_conn: AsyncMock,
     ):
-        """Should return success=True even when validation fails (config is written)."""
+        """Should return success=False when validation fails (config NOT written)."""
         mock_locations.return_value = [_fake_location()]
         mock_resolve_installer.return_value = _mock_installer()
         mock_test_conn.return_value = _failed_connection_result("s", "timed out")
@@ -336,21 +336,21 @@ class TestConfigureValidationFails:
             clients="claude_code",
         )
 
-        assert result["success"] is True
+        assert result["success"] is False
         assert result["validation_passed"] is False
 
     @patch("mcp_tap.tools.configure.test_server_connection")
     @patch("mcp_tap.tools.configure.write_server_config")
     @patch("mcp_tap.tools.configure.resolve_installer")
     @patch("mcp_tap.tools.configure.resolve_config_locations")
-    async def test_validation_failure_config_still_written(
+    async def test_validation_failure_config_not_written(
         self,
         mock_locations: MagicMock,
         mock_resolve_installer: AsyncMock,
         mock_write: MagicMock,
         mock_test_conn: AsyncMock,
     ):
-        """Should still write config even when validation fails."""
+        """Should NOT write config when validation fails (transactional behavior)."""
         mock_locations.return_value = [_fake_location()]
         mock_resolve_installer.return_value = _mock_installer()
         mock_test_conn.return_value = _failed_connection_result()
@@ -363,7 +363,7 @@ class TestConfigureValidationFails:
             clients="claude_code",
         )
 
-        mock_write.assert_called_once()
+        mock_write.assert_not_called()
 
     @patch("mcp_tap.tools.configure.test_server_connection")
     @patch("mcp_tap.tools.configure.write_server_config")
@@ -776,6 +776,197 @@ class TestParseEnvVars:
         result = _parse_env_vars("URL=postgres://host?opt=true")
         assert result == {"URL": "postgres://host?opt=true"}
 
-    def test_pair_without_equals_ignored(self):
+    def test_pair_without_equals_preserved_in_value(self):
+        """Non-KEY= entries after a comma are preserved as part of the previous value."""
         result = _parse_env_vars("KEY=val,BROKEN_ENTRY,OTHER=x")
-        assert result == {"KEY": "val", "OTHER": "x"}
+        assert result == {"KEY": "val,BROKEN_ENTRY", "OTHER": "x"}
+
+    # ── Bug M3: Commas inside values ────────────────────────────
+
+    def test_comma_in_value_preserved(self):
+        """Should preserve commas in values when not followed by KEY= (Bug M3).
+
+        The regex only splits on commas followed by a valid KEY= pattern.
+        Commas followed by text without = are preserved in the value.
+        """
+        result = _parse_env_vars("URL=http://host:8080/path,API_KEY=sk-123")
+        assert result == {"URL": "http://host:8080/path", "API_KEY": "sk-123"}
+
+    def test_multiple_pairs_with_commas_in_values(self):
+        """Should correctly parse multiple pairs where values contain commas (Bug M3)."""
+        result = _parse_env_vars("A=1,B=2,C=val,with,commas,D=4")
+        assert result == {"A": "1", "B": "2", "C": "val,with,commas", "D": "4"}
+
+    def test_single_pair_with_many_commas_in_value(self):
+        """Should return a single pair when value has commas but no other KEY= follows (Bug M3)."""
+        result = _parse_env_vars("SINGLE=value,with,many,commas")
+        assert result == {"SINGLE": "value,with,many,commas"}
+
+
+# ═══════════════════════════════════════════════════════════════
+# Bug H2 — No Redundant test_server_connection After Healing
+# ═══════════════════════════════════════════════════════════════
+
+
+class TestConfigureNoRedundantValidation:
+    """After healing succeeds, test_server_connection should NOT be called again."""
+
+    @patch("mcp_tap.tools.configure.heal_and_retry")
+    @patch("mcp_tap.tools.configure.test_server_connection")
+    @patch("mcp_tap.tools.configure.write_server_config")
+    @patch("mcp_tap.tools.configure.resolve_installer")
+    @patch("mcp_tap.tools.configure.resolve_config_locations")
+    async def test_no_extra_test_after_healing(
+        self,
+        mock_locations: MagicMock,
+        mock_resolve_installer: AsyncMock,
+        mock_write: MagicMock,
+        mock_test_conn: AsyncMock,
+        mock_heal: AsyncMock,
+    ):
+        """test_server_connection should be called exactly once (for initial validation).
+
+        The healing loop's own re-validation counts separately within
+        heal_and_retry. After healing succeeds, _configure_single should NOT
+        spawn yet another test_server_connection call (Bug H2).
+        """
+        from mcp_tap.models import HealingResult
+
+        mock_locations.return_value = [_fake_location()]
+        mock_resolve_installer.return_value = _mock_installer()
+
+        # Initial validation fails
+        mock_test_conn.return_value = _failed_connection_result("s", "Connection refused")
+
+        # Healing succeeds
+        healed_config = ServerConfig(command="/usr/local/bin/npx", args=["-y", "test-pkg"])
+        mock_heal.return_value = HealingResult(
+            fixed=True,
+            attempts=[],
+            fixed_config=healed_config,
+        )
+
+        ctx = _make_ctx()
+        result = await configure_server(
+            server_name="s",
+            package_identifier="p",
+            ctx=ctx,
+            clients="claude_code",
+        )
+
+        assert result["success"] is True
+        # test_server_connection called exactly once — for the initial validation
+        # NOT called again after healing
+        mock_test_conn.assert_awaited_once()
+
+
+# ═══════════════════════════════════════════════════════════════
+# Bug H3 — Transactional Config Write (After Validation)
+# ═══════════════════════════════════════════════════════════════
+
+
+class TestConfigureTransactionalWrite:
+    """Config is ONLY written after validation passes (Bug H3)."""
+
+    @patch("mcp_tap.tools.configure.test_server_connection")
+    @patch("mcp_tap.tools.configure.write_server_config")
+    @patch("mcp_tap.tools.configure.resolve_installer")
+    @patch("mcp_tap.tools.configure.resolve_config_locations")
+    async def test_config_written_on_success(
+        self,
+        mock_locations: MagicMock,
+        mock_resolve_installer: AsyncMock,
+        mock_write: MagicMock,
+        mock_test_conn: AsyncMock,
+    ):
+        """Should write config AFTER validation passes (Bug H3)."""
+        mock_locations.return_value = [_fake_location()]
+        mock_resolve_installer.return_value = _mock_installer()
+        mock_test_conn.return_value = _ok_connection_result()
+
+        ctx = _make_ctx()
+        result = await configure_server(
+            server_name="srv",
+            package_identifier="pkg",
+            ctx=ctx,
+            clients="claude_code",
+        )
+
+        assert result["success"] is True
+        assert result["validation_passed"] is True
+        mock_write.assert_called_once()
+
+    @patch("mcp_tap.tools.configure.heal_and_retry")
+    @patch("mcp_tap.tools.configure.test_server_connection")
+    @patch("mcp_tap.tools.configure.write_server_config")
+    @patch("mcp_tap.tools.configure.resolve_installer")
+    @patch("mcp_tap.tools.configure.resolve_config_locations")
+    async def test_config_not_written_on_failed_validation_and_healing(
+        self,
+        mock_locations: MagicMock,
+        mock_resolve_installer: AsyncMock,
+        mock_write: MagicMock,
+        mock_test_conn: AsyncMock,
+        mock_heal: AsyncMock,
+    ):
+        """Should NOT write config when validation fails AND healing fails (Bug H3)."""
+        from mcp_tap.models import HealingResult
+
+        mock_locations.return_value = [_fake_location()]
+        mock_resolve_installer.return_value = _mock_installer()
+        mock_test_conn.return_value = _failed_connection_result("s", "Connection refused")
+        mock_heal.return_value = HealingResult(
+            fixed=False,
+            attempts=[],
+            user_action_needed="Set env vars",
+        )
+
+        ctx = _make_ctx()
+        result = await configure_server(
+            server_name="s",
+            package_identifier="p",
+            ctx=ctx,
+            clients="claude_code",
+        )
+
+        assert result["success"] is False
+        mock_write.assert_not_called()
+
+    @patch("mcp_tap.tools.configure.heal_and_retry")
+    @patch("mcp_tap.tools.configure.test_server_connection")
+    @patch("mcp_tap.tools.configure.write_server_config")
+    @patch("mcp_tap.tools.configure.resolve_installer")
+    @patch("mcp_tap.tools.configure.resolve_config_locations")
+    async def test_multi_client_config_not_written_when_validation_fails(
+        self,
+        mock_locations: MagicMock,
+        mock_resolve_installer: AsyncMock,
+        mock_write: MagicMock,
+        mock_test_conn: AsyncMock,
+        mock_heal: AsyncMock,
+    ):
+        """Should NOT write config to ANY client when validation + healing fail (Bug H3)."""
+        from mcp_tap.models import HealingResult
+
+        mock_locations.return_value = [
+            _fake_location(MCPClient.CLAUDE_DESKTOP, "/a"),
+            _fake_location(MCPClient.CURSOR, "/b"),
+        ]
+        mock_resolve_installer.return_value = _mock_installer()
+        mock_test_conn.return_value = _failed_connection_result("s", "Timeout")
+        mock_heal.return_value = HealingResult(
+            fixed=False,
+            attempts=[],
+            user_action_needed="Manual fix required",
+        )
+
+        ctx = _make_ctx()
+        result = await configure_server(
+            server_name="s",
+            package_identifier="p",
+            ctx=ctx,
+            clients="claude_desktop,cursor",
+        )
+
+        assert result["success"] is False
+        mock_write.assert_not_called()

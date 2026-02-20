@@ -6,6 +6,7 @@ We read only "mcpServers", preserve everything else on write.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 
@@ -37,6 +38,11 @@ def read_config(config_path: Path | str) -> dict[str, object]:
         ) from exc
     except PermissionError as exc:
         raise ConfigReadError(f"Permission denied reading {path}: {exc}") from exc
+
+
+async def aread_config(config_path: Path | str) -> dict[str, object]:
+    """Async version of read_config. Use from async code to avoid blocking the event loop."""
+    return await asyncio.to_thread(read_config, config_path)
 
 
 def parse_servers(

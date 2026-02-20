@@ -2,15 +2,23 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import asdict
 
+import httpx
 from mcp.server.fastmcp import Context
 
 from mcp_tap.errors import McpTapError
 from mcp_tap.evaluation.github import fetch_repo_metadata
 from mcp_tap.evaluation.scorer import score_maturity
-from mcp_tap.models import MaturitySignals, ProjectProfile, SearchResult
+from mcp_tap.models import (
+    MaturitySignals,
+    ProjectProfile,
+    RegistryType,
+    SearchResult,
+    ServerRecommendation,
+)
 from mcp_tap.scanner.credentials import map_credentials
 from mcp_tap.scanner.scoring import relevance_sort_key, score_result
 
@@ -148,8 +156,6 @@ def _apply_credential_status(
         reg_vars = {pkg_id: list(env_vars_required)} if pkg_id else {}
 
         # Create a minimal recommendation for mapping
-        from mcp_tap.models import RegistryType, ServerRecommendation
-
         rec = ServerRecommendation(
             server_name=str(result.get("name", "")),
             package_identifier=pkg_id,
@@ -186,10 +192,6 @@ async def _apply_maturity(
     http_client: object,
 ) -> list[dict[str, object]]:
     """Fetch GitHub maturity signals and add scores to results."""
-    import asyncio
-
-    import httpx
-
     if not isinstance(http_client, httpx.AsyncClient):
         return results
 

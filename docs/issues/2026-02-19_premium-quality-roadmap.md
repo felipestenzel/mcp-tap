@@ -52,23 +52,20 @@ Sem corrigir esses 4 problemas, o produto não é confiável para uso real.
 - **Fix aplicado**: `httpx.AsyncHTTPTransport(retries=3)` no `server.py` lifespan
 - **Testes**: 5 novos (transport retries, timeout config, follow_redirects, lifecycle)
 
-#### H2. Healing loop spawna até 7 processos por servidor
-- **Arquivo**: `src/mcp_tap/tools/configure.py` (linhas 147-205)
-- **Fix**: Reutilizar erro original em `_try_heal`, reduzir max_attempts de 3 para 2.
-- **Esforço**: S
+#### H2. Healing loop spawna até 7 processos por servidor ✅ DONE
+- **Branch**: `fix/2026-02-19-production-hardening-r2`
+- **Fix aplicado**: max_attempts 3→2, _try_heal forwards original error, removed redundant post-heal validation
+- **Testes**: +4 novos (max attempts default, error forwarding, no redundant validation)
 
-#### H3. configure_server não é transacional
-- **Arquivo**: `src/mcp_tap/tools/configure.py`
-- **Problema**: Config é escrito mesmo se validação falha. `success=True` com
-  `validation_passed=False` é enganoso.
-- **Fix**: Status mais granular ou rollback da config entry se validação falha.
-- **Esforço**: M
+#### H3. configure_server não é transacional ✅ DONE
+- **Branch**: `fix/2026-02-19-production-hardening-r2`
+- **Fix aplicado**: write_server_config moved to AFTER validation, success=False if validation fails
+- **Testes**: +3 novos (config written on success, not written on failure, multi-client failure)
 
-#### H4. Connection tester — cleanup incerto no timeout
-- **Arquivo**: `src/mcp_tap/connection/tester.py` (linhas 23-63)
-- **Problema**: Se o shutdown do `stdio_client` travar, processo pode ficar pendurado.
-- **Fix**: Verificar se `stdio_client.__aexit__` tem timeout interno, adicionar fallback.
-- **Esforço**: M
+#### H4. Connection tester — cleanup incerto no timeout ✅ DONE
+- **Branch**: `fix/2026-02-19-production-hardening-r2`
+- **Fix aplicado**: Extracted _run_connection_test, asyncio.wait_for for proper CancelledError cleanup
+- **Testes**: +3 novos (callable check, timeout message, cleanup message)
 
 ---
 
@@ -173,14 +170,14 @@ Sem corrigir esses 4 problemas, o produto não é confiável para uso real.
 
 ## Problemas MÉDIOS (quality of life)
 
-| # | Problema | Arquivo | Fix | Esforço |
-|---|---------|---------|-----|---------|
-| M1 | httpx sem limites de pool | `server.py` | `Limits(max_connections=10)` | S |
-| M2 | Config reader sync em async | `config/reader.py` | `asyncio.to_thread` | S |
-| M3 | Env vars parser quebra com vírgula no valor | `tools/configure.py` | Documentar ou mudar delimitador | S |
-| M4 | Import inline em loop | `tools/search.py:151` | Mover para topo do arquivo | Trivial |
-| M5 | `shutil.which()` sync no healing | `healing/fixer.py` | Aceitar como debt | Trivial |
-| L1 | Regex de segredos com falsos positivos | `tools/list.py` | Heurísticas por prefixo | S |
+| # | Problema | Arquivo | Fix | Esforço | Status |
+|---|---------|---------|-----|---------|--------|
+| M1 | httpx sem limites de pool | `server.py` | `Limits(max_connections=10)` | S | ✅ DONE |
+| M2 | Config reader sync em async | `config/reader.py` | `asyncio.to_thread` | S | ✅ DONE |
+| M3 | Env vars parser quebra com vírgula no valor | `tools/configure.py` | Regex smart split | S | ✅ DONE |
+| M4 | Import inline em loop | `tools/search.py:151` | Mover para topo do arquivo | Trivial | ✅ DONE |
+| M5 | `shutil.which()` sync no healing | `healing/fixer.py` | Aceitar como debt | Trivial | |
+| L1 | Regex de segredos com falsos positivos | `tools/list.py` | Heurísticas por prefixo | S | |
 
 ---
 
