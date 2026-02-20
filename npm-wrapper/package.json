@@ -1,0 +1,34 @@
+{
+  "name": "mcp-tap",
+  "version": "0.3.0",
+  "description": "The last MCP server you install by hand. Discover, install, and configure MCP servers from inside your AI assistant.",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "ai",
+    "tools",
+    "discovery",
+    "mcp-server"
+  ],
+  "author": "Felipe Stenzel",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/felipestenzel/mcp-tap.git"
+  },
+  "homepage": "https://github.com/felipestenzel/mcp-tap",
+  "bugs": {
+    "url": "https://github.com/felipestenzel/mcp-tap/issues"
+  },
+  "bin": {
+    "mcp-tap": "./bin/mcp-tap.js"
+  },
+  "files": [
+    "bin/",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  }
+}

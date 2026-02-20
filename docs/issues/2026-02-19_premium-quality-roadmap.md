@@ -150,9 +150,10 @@ Sem corrigir esses 4 problemas, o produto não é confiável para uso real.
 - SEM ISSO, NADA MAIS IMPORTA. README sem demo não converte.
 - Esforço: S | Impacto: 10/10
 
-### D2. npm wrapper (`npx mcp-tap`)
+### D2. npm wrapper (`npx mcp-tap`) ✅ DONE
 - 60-70% dos usuários MCP esperam npx. Wrapper fino que chama uvx.
 - Esforço: M | Impacto: 9/10
+- `npm-wrapper/` directory with `bin/mcp-tap.js` — resolution: uvx → pipx → python
 
 ### D3. Submit awesome-mcp-servers + posts Reddit/HN
 - Distribuição grátis. O produto existe, precisa de eyeballs.
