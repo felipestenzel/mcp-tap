@@ -40,13 +40,32 @@ class RegistryClient:
     ) -> list[RegistryServer]:
         """Search the registry for MCP servers.
 
+        The MCP Registry API only supports single-term substring matching.
+        When a multi-word query is provided (e.g. "sentry error monitoring"),
+        each word is searched in parallel and results are deduplicated,
+        dramatically improving hit rates for natural-language queries.
+
         Args:
-            query: Search term (substring match on server name/description).
+            query: Search term. Single words are searched directly.
+                Multi-word queries are split and searched in parallel.
             limit: Max results (1-100).
 
         Returns:
-            List of RegistryServer objects.
+            List of RegistryServer objects, deduplicated by name.
         """
+        words = query.split()
+        if len(words) <= 1:
+            return await self._search_single(query, limit=limit)
+
+        return await self._search_multi(words, limit=limit)
+
+    async def _search_single(
+        self,
+        query: str,
+        *,
+        limit: int = 30,
+    ) -> list[RegistryServer]:
+        """Execute a single search query against the registry."""
         try:
             response = await self.http.get(
                 f"{_BASE_URL}/servers",
@@ -63,6 +82,38 @@ class RegistryClient:
         data = response.json()
         servers_raw = data.get("servers", [])
         return [self._parse_entry(entry) for entry in servers_raw]
+
+    async def _search_multi(
+        self,
+        words: list[str],
+        *,
+        limit: int = 30,
+    ) -> list[RegistryServer]:
+        """Search multiple words in parallel and deduplicate results.
+
+        Searches each word independently (the registry API does not
+        support multi-word queries), merges results, and deduplicates
+        by server name. Results from earlier words take priority.
+        """
+        import asyncio
+
+        per_word_limit = min(limit, 30)
+        tasks = [self._search_single(word, limit=per_word_limit) for word in words]
+        results_per_word = await asyncio.gather(*tasks, return_exceptions=True)
+
+        seen_names: set[str] = set()
+        merged: list[RegistryServer] = []
+        for result in results_per_word:
+            if isinstance(result, BaseException):
+                continue
+            for server in result:
+                if server.name not in seen_names:
+                    seen_names.add(server.name)
+                    merged.append(server)
+                    if len(merged) >= limit:
+                        return merged
+
+        return merged
 
     async def get_server(self, name: str) -> RegistryServer | None:
         """Fetch a specific server by its registry name.

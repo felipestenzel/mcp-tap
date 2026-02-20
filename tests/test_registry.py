@@ -422,3 +422,135 @@ class TestGetServerEndpoint:
             result = await client.get_server("nonexistent/server")
 
         assert result is None
+
+
+class TestMultiWordSearch:
+    """Test multi-word query splitting and deduplication."""
+
+    def _make_client(self) -> RegistryClient:
+        return RegistryClient(http=httpx.AsyncClient())
+
+    def _mock_response(self, servers_data: list[dict]) -> MagicMock:
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.raise_for_status = MagicMock()
+        resp.json.return_value = {"servers": servers_data}
+        return resp
+
+    def _wrap_server(self, name: str, desc: str = "test") -> dict:
+        return {
+            "server": {"name": name, "description": desc, "version": "1.0.0"},
+            "_meta": {},
+        }
+
+    async def test_single_word_calls_api_once(self):
+        client = self._make_client()
+        mock_get = AsyncMock(return_value=self._mock_response([self._wrap_server("srv/one")]))
+        with patch.object(client.http, "get", mock_get):
+            results = await client.search("postgres")
+        assert mock_get.call_count == 1
+        assert len(results) == 1
+
+    async def test_multi_word_calls_api_per_word(self):
+        client = self._make_client()
+        mock_get = AsyncMock(return_value=self._mock_response([self._wrap_server("srv/one")]))
+        with patch.object(client.http, "get", mock_get):
+            await client.search("sentry error monitoring")
+        # Should call API 3 times (one per word)
+        assert mock_get.call_count == 3
+
+    async def test_multi_word_deduplicates_by_name(self):
+        client = self._make_client()
+
+        call_count = 0
+
+        async def mock_get(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            search_param = kwargs.get("params", {}).get("search", "")
+            if search_param == "sentry":
+                return self._mock_response(
+                    [
+                        self._wrap_server("io.github.getsentry/sentry-mcp", "Sentry MCP"),
+                    ]
+                )
+            if search_param == "error":
+                return self._mock_response(
+                    [
+                        self._wrap_server("io.github.getsentry/sentry-mcp", "Sentry MCP"),
+                        self._wrap_server("io.github.other/error-tracker", "Error tracker"),
+                    ]
+                )
+            return self._mock_response([])
+
+        with patch.object(client.http, "get", mock_get):
+            results = await client.search("sentry error monitoring")
+
+        assert call_count == 3
+        names = [r.name for r in results]
+        # sentry-mcp should appear only once despite matching both "sentry" and "error"
+        assert names.count("io.github.getsentry/sentry-mcp") == 1
+        assert "io.github.other/error-tracker" in names
+        assert len(results) == 2
+
+    async def test_multi_word_respects_limit(self):
+        client = self._make_client()
+
+        async def mock_get(*args, **kwargs):
+            return self._mock_response(
+                [
+                    self._wrap_server(f"srv/{kwargs.get('params', {}).get('search', 'x')}-1"),
+                    self._wrap_server(f"srv/{kwargs.get('params', {}).get('search', 'x')}-2"),
+                    self._wrap_server(f"srv/{kwargs.get('params', {}).get('search', 'x')}-3"),
+                ]
+            )
+
+        with patch.object(client.http, "get", mock_get):
+            results = await client.search("a b c", limit=4)
+
+        assert len(results) <= 4
+
+    async def test_multi_word_handles_partial_failure(self):
+        client = self._make_client()
+
+        call_count = 0
+
+        async def mock_get(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            search_param = kwargs.get("params", {}).get("search", "")
+            if search_param == "good":
+                return self._mock_response([self._wrap_server("srv/good")])
+            raise Exception("API error")
+
+        with patch.object(client.http, "get", mock_get):
+            results = await client.search("good bad")
+
+        assert len(results) == 1
+        assert results[0].name == "srv/good"
+
+    async def test_empty_query_returns_empty(self):
+        client = self._make_client()
+        mock_get = AsyncMock(return_value=self._mock_response([]))
+        with patch.object(client.http, "get", mock_get):
+            results = await client.search("")
+        assert results == []
+
+    async def test_multi_word_preserves_order(self):
+        """Results from earlier words should appear first."""
+        client = self._make_client()
+
+        async def mock_get(*args, **kwargs):
+            search_param = kwargs.get("params", {}).get("search", "")
+            if search_param == "alpha":
+                return self._mock_response([self._wrap_server("srv/alpha")])
+            if search_param == "beta":
+                return self._mock_response([self._wrap_server("srv/beta")])
+            return self._mock_response([])
+
+        with patch.object(client.http, "get", mock_get):
+            results = await client.search("alpha beta")
+
+        assert len(results) == 2
+        assert results[0].name == "srv/alpha"
+        assert results[1].name == "srv/beta"
