@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -1082,3 +1082,128 @@ class TestHealingModels:
         assert attempt.diagnosis.category == ErrorCategory.COMMAND_NOT_FOUND
         assert attempt.fix_applied.description == "test fix"
         assert attempt.success is True
+
+
+# ═══════════════════════════════════════════════════════════════
+# 5. Bug Fix H2 — Healing Loop Process Reduction
+# ═══════════════════════════════════════════════════════════════
+
+
+class TestHealAndRetryDefaultMaxAttempts:
+    """Tests verifying that heal_and_retry defaults to max_attempts=2 (Bug H2)."""
+
+    @patch("mcp_tap.healing.retry.test_server_connection")
+    @patch("mcp_tap.healing.retry.generate_fix")
+    @patch("mcp_tap.healing.retry.classify_error")
+    async def test_default_max_attempts_is_two(
+        self,
+        mock_classify,
+        mock_generate_fix,
+        mock_test_conn,
+    ):
+        """Should default to max_attempts=2, spawning at most 2 processes."""
+        initial_error = _failed_connection("Server did not respond within 15s")
+        config = _server_config()
+
+        mock_classify.return_value = _diagnosis(category=ErrorCategory.TIMEOUT)
+        mock_generate_fix.return_value = CandidateFix(
+            description="Retry with increased timeout",
+            requires_user_action=False,
+            new_config=config,
+        )
+        mock_test_conn.return_value = _failed_connection("Still timing out")
+
+        from mcp_tap.healing.retry import heal_and_retry
+
+        # Call without specifying max_attempts — should use default of 2
+        result = await heal_and_retry("test-server", config, initial_error)
+
+        assert result.fixed is False
+        assert len(result.attempts) == 2
+        assert mock_test_conn.await_count == 2
+
+    @patch("mcp_tap.healing.retry.test_server_connection")
+    @patch("mcp_tap.healing.retry.generate_fix")
+    @patch("mcp_tap.healing.retry.classify_error")
+    async def test_default_max_attempts_succeeds_on_second(
+        self,
+        mock_classify,
+        mock_generate_fix,
+        mock_test_conn,
+    ):
+        """Should allow success on attempt 2 with default max_attempts."""
+        initial_error = _failed_connection("Command not found: npx")
+        config = _server_config()
+
+        mock_classify.return_value = _diagnosis(
+            category=ErrorCategory.COMMAND_NOT_FOUND,
+        )
+        mock_generate_fix.return_value = CandidateFix(
+            description="Resolved path",
+            requires_user_action=False,
+            new_config=_server_config(command="/usr/local/bin/npx"),
+        )
+        mock_test_conn.side_effect = [
+            _failed_connection("Still broken"),
+            _ok_connection(),
+        ]
+
+        from mcp_tap.healing.retry import heal_and_retry
+
+        result = await heal_and_retry("test-server", config, initial_error)
+
+        assert result.fixed is True
+        assert len(result.attempts) == 2
+
+    def test_heal_and_retry_signature_default(self):
+        """Should have max_attempts default value of 2 in the function signature."""
+        import inspect
+
+        from mcp_tap.healing.retry import heal_and_retry
+
+        sig = inspect.signature(heal_and_retry)
+        default = sig.parameters["max_attempts"].default
+        assert default == 2
+
+
+class TestTryHealForwardsOriginalError:
+    """Tests verifying _try_heal forwards original_error (Bug H2)."""
+
+    @patch("mcp_tap.healing.retry.test_server_connection")
+    @patch("mcp_tap.healing.retry.generate_fix")
+    @patch("mcp_tap.healing.retry.classify_error")
+    async def test_try_heal_does_not_call_test_server_connection_for_initial_error(
+        self,
+        mock_classify,
+        mock_generate_fix,
+        mock_test_conn,
+    ):
+        """_try_heal should pass original_error directly to heal_and_retry,
+        which means classify_error receives the original error without
+        spawning a redundant test_server_connection call first.
+        """
+        from mcp_tap.tools.configure import _try_heal
+
+        original_error = _failed_connection("Command not found: npx")
+        config = _server_config()
+        ctx = MagicMock()
+        ctx.info = AsyncMock()
+
+        mock_classify.return_value = _diagnosis(
+            category=ErrorCategory.COMMAND_NOT_FOUND,
+        )
+        mock_generate_fix.return_value = CandidateFix(
+            description="Resolved path",
+            requires_user_action=False,
+            new_config=_server_config(command="/usr/local/bin/npx"),
+        )
+        mock_test_conn.return_value = _ok_connection()
+
+        await _try_heal("test-server", config, original_error, ctx)
+
+        # classify_error should have been called with the original error
+        # (not a freshly-spawned test result)
+        mock_classify.assert_called_once_with(original_error)
+        # test_server_connection is only called ONCE for the re-validation,
+        # NOT twice (once would have been for getting a "fresh" error)
+        mock_test_conn.assert_awaited_once()

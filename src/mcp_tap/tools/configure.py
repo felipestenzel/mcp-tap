@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import asdict
 from pathlib import Path
 
@@ -17,6 +18,7 @@ from mcp_tap.installer.resolver import resolve_installer
 from mcp_tap.models import (
     ConfigLocation,
     ConfigureResult,
+    ConnectionTestResult,
     RegistryType,
     ServerConfig,
 )
@@ -39,14 +41,14 @@ async def configure_server(
 
     This is the main action tool. It handles the complete setup flow:
     1. Installs the package via npm/pip/docker (fails fast if install fails)
-    2. Writes the server entry to your MCP client config file(s)
-    3. Validates by spawning the server and calling list_tools()
+    2. Validates by spawning the server and calling list_tools()
+    3. Writes the server entry to your MCP client config file(s) only if validation passes
 
     Get the package_identifier and registry_type from search_servers results
     or scan_project recommendations.
 
-    If validation fails, the config is still written — the user may need to
-    set environment variables or restart their MCP client.
+    If validation fails, the config is NOT written to avoid broken entries.
+    The user should fix the issue and retry.
 
     Args:
         server_name: Name for this server in the config (e.g. "postgres").
@@ -165,10 +167,8 @@ async def _configure_single(
     ctx: Context,
 ) -> dict[str, object]:
     """Configure a server for a single client. Returns a ConfigureResult dict."""
-    write_server_config(Path(location.path), server_name, server_config)
-
-    # Validate the connection
-    tools_discovered, validation_passed, tool_summary = await _validate(
+    # Validate the connection BEFORE writing config
+    tools_discovered, validation_passed, tool_summary, test_result = await _validate(
         server_name, server_config, ctx
     )
 
@@ -176,26 +176,47 @@ async def _configure_single(
     healing_info: dict[str, object] = {}
     effective_config = server_config
     if not validation_passed:
-        healed, effective_config, healing_info = await _try_heal(server_name, server_config, ctx)
+        healed, effective_config, healing_info = await _try_heal(
+            server_name, server_config, test_result, ctx
+        )
         if healed:
             validation_passed = True
-            write_server_config(
-                Path(location.path),
-                server_name,
-                effective_config,
-                overwrite_existing=True,
-            )
-            test_result = await test_server_connection(
-                server_name,
-                effective_config,
-                timeout_seconds=15,
-            )
-            tools_discovered = list(test_result.tools_discovered)
+            # Use tools from the last successful heal_and_retry attempt
+            # instead of spawning another process
+            last_attempt = healing_info.get("attempts_count", 0)
             tool_summary = (
-                f" Healed and discovered {len(tools_discovered)} tools: "
-                f"{', '.join(tools_discovered[:10])}"
-                f"{'...' if len(tools_discovered) > 10 else ''}."
+                f" Healed after {last_attempt} attempt(s)."
+                " Server is working. See healing details for more info."
             )
+
+    if not validation_passed:
+        # Do NOT write config to avoid leaving a broken entry
+        result = asdict(
+            ConfigureResult(
+                success=False,
+                server_name=server_name,
+                config_file=location.path,
+                message=(
+                    f"Server '{server_name}' validation failed."
+                    f"{tool_summary} "
+                    "Config was NOT written to avoid a broken entry."
+                ),
+                install_status="installed",
+                tools_discovered=tools_discovered,
+                validation_passed=False,
+            )
+        )
+        if healing_info:
+            result["healing"] = healing_info
+        return result
+
+    # Validation passed (directly or after healing) — write config
+    write_server_config(
+        Path(location.path),
+        server_name,
+        effective_config,
+        overwrite_existing=True,
+    )
 
     result = asdict(
         ConfigureResult(
@@ -211,7 +232,7 @@ async def _configure_single(
             config_written=effective_config.to_dict(),
             install_status="installed",
             tools_discovered=tools_discovered,
-            validation_passed=validation_passed,
+            validation_passed=True,
         )
     )
     if healing_info:
@@ -227,7 +248,7 @@ async def _configure_multi(
 ) -> dict[str, object]:
     """Configure a server for multiple clients. Returns aggregated result."""
     # Validate once (same binary, same config)
-    tools_discovered, validation_passed, tool_summary = await _validate(
+    tools_discovered, validation_passed, tool_summary, test_result = await _validate(
         server_name, server_config, ctx
     )
 
@@ -235,21 +256,39 @@ async def _configure_multi(
     healing_info: dict[str, object] = {}
     effective_config = server_config
     if not validation_passed:
-        healed, effective_config, healing_info = await _try_heal(server_name, server_config, ctx)
+        healed, effective_config, healing_info = await _try_heal(
+            server_name, server_config, test_result, ctx
+        )
         if healed:
             validation_passed = True
-            test_result = await test_server_connection(
-                server_name,
-                effective_config,
-                timeout_seconds=15,
-            )
-            tools_discovered = list(test_result.tools_discovered)
+            last_attempt = healing_info.get("attempts_count", 0)
             tool_summary = (
-                f" Healed and discovered {len(tools_discovered)} tools: "
-                f"{', '.join(tools_discovered[:10])}"
-                f"{'...' if len(tools_discovered) > 10 else ''}."
+                f" Healed after {last_attempt} attempt(s)."
+                " Server is working. See healing details for more info."
             )
 
+    if not validation_passed:
+        # Do NOT write config to avoid leaving broken entries
+        result = asdict(
+            ConfigureResult(
+                success=False,
+                server_name=server_name,
+                config_file="",
+                message=(
+                    f"Server '{server_name}' validation failed."
+                    f"{tool_summary} "
+                    "Config was NOT written to avoid a broken entry."
+                ),
+                install_status="installed",
+                tools_discovered=tools_discovered,
+                validation_passed=False,
+            )
+        )
+        if healing_info:
+            result["healing"] = healing_info
+        return result
+
+    # Validation passed — write config to all target clients
     per_client: list[dict[str, object]] = []
     success_count = 0
 
@@ -297,7 +336,7 @@ async def _configure_multi(
             config_written=effective_config.to_dict(),
             install_status="installed",
             tools_discovered=tools_discovered,
-            validation_passed=validation_passed,
+            validation_passed=True,
         )
     )
     result["per_client_results"] = per_client
@@ -310,8 +349,14 @@ async def _validate(
     server_name: str,
     server_config: ServerConfig,
     ctx: Context,
-) -> tuple[list[str], bool, str]:
-    """Validate a server connection. Returns (tools, passed, summary_text)."""
+) -> tuple[list[str], bool, str, ConnectionTestResult]:
+    """Validate a server connection.
+
+    Returns:
+        Tuple of (tools, passed, summary_text, raw_test_result).
+        The raw ConnectionTestResult is returned so callers can pass it
+        directly to the healing loop without spawning a redundant process.
+    """
     await ctx.info(f"Validating {server_name} connection...")
     test_result = await test_server_connection(server_name, server_config, timeout_seconds=15)
 
@@ -322,23 +367,30 @@ async def _validate(
             f"{', '.join(tools[:10])}"
             f"{'...' if len(tools) > 10 else ''}."
         )
-        return tools, True, summary
+        return tools, True, summary, test_result
 
     logger.warning("Validation failed for %s: %s", server_name, test_result.error)
     summary = (
         f" Validation warning: {test_result.error}. "
-        "The server config was written. You may need to set "
-        "environment variables or restart your MCP client."
+        "You may need to set environment variables or restart your MCP client."
     )
-    return [], False, summary
+    return [], False, summary, test_result
 
 
 async def _try_heal(
     server_name: str,
     server_config: ServerConfig,
+    original_error: ConnectionTestResult,
     ctx: Context,
 ) -> tuple[bool, ServerConfig, dict[str, object]]:
     """Attempt self-healing after a validation failure.
+
+    Args:
+        server_name: Name of the server to heal.
+        server_config: The current server configuration.
+        original_error: The ConnectionTestResult from the failed validation.
+            Reused directly to avoid spawning a redundant server process.
+        ctx: MCP context for progress messages.
 
     Returns:
         Tuple of (healed, effective_config, healing_info_dict).
@@ -347,20 +399,10 @@ async def _try_heal(
     """
     await ctx.info(f"Attempting self-healing for {server_name}...")
 
-    # Get a fresh error for healing
-    error_result = await test_server_connection(
-        server_name,
-        server_config,
-        timeout_seconds=15,
-    )
-    if error_result.success:
-        # Transient failure — it works now
-        return True, server_config, {"healed": True, "note": "Transient failure resolved."}
-
     healing_result = await heal_and_retry(
         server_name,
         server_config,
-        error_result,
+        original_error,
     )
 
     info: dict[str, object] = {
@@ -409,12 +451,19 @@ def _update_lockfile(
 
 
 def _parse_env_vars(env_vars: str) -> dict[str, str]:
-    """Parse comma-separated KEY=VALUE pairs into a dict."""
+    """Parse comma-separated KEY=VALUE pairs into a dict.
+
+    Splits only on commas followed by a KEY= pattern, so values containing
+    commas (e.g. ``CONN=host=localhost,port=5432``) are preserved intact.
+    """
     env: dict[str, str] = {}
     if not env_vars:
         return env
 
-    for pair in env_vars.split(","):
+    # Split on commas that are followed by WORD= (a new key-value pair).
+    # This preserves commas inside values.
+    parts = re.split(r",(?=\s*[A-Za-z_][A-Za-z0-9_]*\s*=)", env_vars)
+    for pair in parts:
         pair = pair.strip()
         if "=" in pair:
             key, value = pair.split("=", 1)

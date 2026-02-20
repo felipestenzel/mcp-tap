@@ -237,3 +237,41 @@ class TestWriteServerConfigLocking:
         assert f.exists()
         data = json.loads(f.read_text())
         assert "my-server" in data["mcpServers"]
+
+
+# === Bug M2 — Async Config Reader Tests =====================================
+
+
+class TestAsyncReadConfig:
+    """Tests for aread_config -- async wrapper around read_config (Bug M2)."""
+
+    async def test_aread_config_returns_same_as_sync(self, tmp_path: Path):
+        """aread_config should return the same result as read_config for an existing file."""
+        from mcp_tap.config.reader import aread_config
+
+        f = tmp_path / "config.json"
+        data = {
+            "mcpServers": {
+                "test-server": {
+                    "command": "npx",
+                    "args": ["-y", "test-pkg"],
+                    "env": {"KEY": "value"},
+                }
+            },
+            "otherKey": "preserved",
+        }
+        f.write_text(json.dumps(data))
+
+        sync_result = read_config(f)
+        async_result = await aread_config(f)
+
+        assert async_result == sync_result
+        assert "test-server" in async_result["mcpServers"]
+        assert async_result["otherKey"] == "preserved"
+
+    async def test_aread_config_nonexistent_returns_empty(self, tmp_path: Path):
+        """aread_config should return {"mcpServers": {}} for non-existent file (Bug M2)."""
+        from mcp_tap.config.reader import aread_config
+
+        result = await aread_config(tmp_path / "does_not_exist.json")
+        assert result == {"mcpServers": {}}

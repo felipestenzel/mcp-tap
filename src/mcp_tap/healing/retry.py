@@ -25,7 +25,7 @@ async def heal_and_retry(
     server_config: ServerConfig,
     error: ConnectionTestResult,
     *,
-    max_attempts: int = 3,
+    max_attempts: int = 2,
     timeout_seconds: int = 15,
 ) -> HealingResult:
     """Diagnose an error, apply a fix, and retry validation.

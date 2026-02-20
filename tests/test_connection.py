@@ -101,3 +101,51 @@ class TestServerConnection:
 
             call_args = mock_stdio.call_args[0][0]
             assert call_args.env is None
+
+
+# === Bug H4 — Connection Tester Improved Cleanup ===========================
+
+
+class TestConnectionTesterCleanup:
+    """Tests for _run_connection_test extraction and timeout cleanup (Bug H4)."""
+
+    def test_run_connection_test_exists_and_callable(self):
+        """_run_connection_test should exist as a callable coroutine function (Bug H4)."""
+        import inspect
+
+        from mcp_tap.connection.tester import _run_connection_test
+
+        assert callable(_run_connection_test)
+        assert inspect.iscoroutinefunction(_run_connection_test)
+
+    async def test_timeout_message_mentions_process_cleanup(self):
+        """Timeout error message should mention 'process cleanup was attempted' (Bug H4).
+
+        The new asyncio.wait_for wrapper ensures that on timeout, the inner
+        coroutine gets CancelledError triggering stdio_client cleanup, and
+        the error message reflects this.
+        """
+        with patch(
+            "mcp_tap.connection.tester._run_connection_test",
+            new_callable=AsyncMock,
+        ) as mock_run:
+            # Simulate asyncio.wait_for raising TimeoutError
+            mock_run.side_effect = TimeoutError("timed out")
+
+            result = await _test_server_conn("cleanup-test", _server_config(), timeout_seconds=10)
+
+        assert result.success is False
+        assert "process cleanup was attempted" in result.error
+        assert "10s" in result.error
+
+    async def test_timeout_message_includes_timeout_value(self):
+        """Should include the actual timeout value in the error message (Bug H4)."""
+        with patch(
+            "mcp_tap.connection.tester._run_connection_test",
+            new_callable=AsyncMock,
+        ) as mock_run:
+            mock_run.side_effect = TimeoutError("timed out")
+
+            result = await _test_server_conn("timeout-val", _server_config(), timeout_seconds=42)
+
+        assert "42s" in result.error

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import httpx
 
@@ -60,3 +60,33 @@ class TestAppLifespan:
             assert not client.is_closed
 
         assert client.is_closed
+
+    # === Bug M1 — Pool Limits =============================================
+
+    async def test_creates_http_client_with_pool_limits(self):
+        """Should pass max_connections=10 limits to httpx.AsyncClient (Bug M1).
+
+        Note: When an explicit transport= is provided, httpx applies pool
+        limits from the transport, not from the limits= parameter. We verify
+        that the limits= parameter is declared in the code by patching the
+        AsyncClient constructor to capture the kwargs.
+        """
+        import httpx as httpx_mod
+
+        original_init = httpx_mod.AsyncClient.__init__
+        captured_kwargs: dict[str, object] = {}
+
+        def capture_init(self, **kwargs):
+            captured_kwargs.update(kwargs)
+            return original_init(self, **kwargs)
+
+        with patch.object(httpx_mod.AsyncClient, "__init__", capture_init):
+            mock_server = MagicMock()
+            async with app_lifespan(mock_server) as ctx:
+                assert ctx.http_client is not None
+
+        assert "limits" in captured_kwargs
+        limits = captured_kwargs["limits"]
+        assert isinstance(limits, httpx.Limits)
+        assert limits.max_connections == 10
+        assert limits.max_keepalive_connections == 5
