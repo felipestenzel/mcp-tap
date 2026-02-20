@@ -48,6 +48,10 @@ You install mcp-tap once. It installs everything else.
 
 Add to your `claude_desktop_config.json`:
 
+<!-- tabs: uvx (recommended), npx -->
+
+**With uvx** (recommended):
+
 ```json
 {
   "mcpServers": {
@@ -59,10 +63,27 @@ Add to your `claude_desktop_config.json`:
 }
 ```
 
+**With npx**:
+
+```json
+{
+  "mcpServers": {
+    "mcp-tap": {
+      "command": "npx",
+      "args": ["-y", "mcp-tap"]
+    }
+  }
+}
+```
+
 ### Claude Code
 
 ```bash
+# With uvx (recommended)
 claude mcp add mcp-tap -- uvx mcp-tap
+
+# With npx
+claude mcp add mcp-tap -- npx -y mcp-tap
 ```
 
 ### Cursor
@@ -80,6 +101,8 @@ Add to `.cursor/mcp.json`:
 }
 ```
 
+Or use `npx` — replace `"command": "uvx", "args": ["mcp-tap"]` with `"command": "npx", "args": ["-y", "mcp-tap"]`.
+
 ### Windsurf
 
 Add to `~/.codeium/windsurf/mcp_config.json`:
@@ -94,6 +117,8 @@ Add to `~/.codeium/windsurf/mcp_config.json`:
   }
 }
 ```
+
+Or use `npx` — replace `"command": "uvx", "args": ["mcp-tap"]` with `"command": "npx", "args": ["-y", "mcp-tap"]`.
 
 ## What can it do?
 
@@ -112,27 +137,36 @@ Add to `~/.codeium/windsurf/mcp_config.json`:
 
 | Tool | What it does |
 |------|-------------|
-| `scan_project` | Scans your project directory, detects languages/frameworks/databases, recommends MCP servers |
-| `search_servers` | Searches the MCP Registry by keyword, optionally ranked by project relevance |
-| `configure_server` | Installs a package (npm/pip/docker) and writes config to one or all clients |
-| `test_connection` | Spawns a server process, connects via MCP, and lists its tools |
-| `check_health` | Tests all configured servers concurrently, reports healthy/unhealthy/timeout |
-| `list_installed` | Shows all configured servers with their commands and environment variables (secrets masked) |
+| `scan_project` | Scans your project directory — detects languages, frameworks, databases, CI/CD pipelines — and recommends MCP servers |
+| `search_servers` | Searches the MCP Registry by keyword, with maturity scoring and project relevance ranking |
+| `configure_server` | Installs a package (npm/pip/docker), runs a security gate, validates the connection, and writes config |
+| `test_connection` | Spawns a server process, connects via MCP protocol, and lists its tools. Auto-heals on failure |
+| `check_health` | Tests all configured servers concurrently, detects tool conflicts between servers |
+| `inspect_server` | Fetches a server's README and extracts configuration hints |
+| `list_installed` | Shows all configured servers with secrets masked (layered detection: key names, prefixes, high-entropy) |
 | `remove_server` | Removes a server from one or all client configs |
+| `verify` | Compares `mcp-tap.lock` against actual config — detects drift |
+| `restore` | Recreates server configs from a lockfile (like `npm ci` for MCP) |
+| `apply_stack` | Installs a group of servers from a shareable stack profile |
+
+Plus automatic lockfile management on every configure/remove.
 
 ## Features
 
-- **Project-aware**: Scans your codebase to recommend servers based on your actual stack
+- **Project-aware**: Scans your codebase — including CI/CD configs (GitHub Actions, GitLab CI) — to recommend servers based on your actual stack
+- **Security gate**: Blocks suspicious install commands, archived repos, and known-risky patterns before installing
+- **Lockfile**: `mcp-tap.lock` tracks exact versions and hashes of all your MCP servers. Reproducible setups across machines
+- **Stacks**: Shareable server profiles — install a complete Data Science, Web Dev, or DevOps stack in one command
 - **Multi-client**: Configure Claude Desktop, Claude Code, Cursor, and Windsurf — all at once or individually
-- **Project-scoped configs**: Use `scope="project"` to write `.mcp.json` for team-shared setups
+- **Auto-healing**: Failed connections are automatically diagnosed and fixed when possible
+- **Tool conflict detection**: Warns when two servers expose overlapping tools that could confuse the LLM
 - **Connection validation**: Every install is verified with a real MCP connection test
-- **Health monitoring**: Check all your servers in one command
 - **Secrets masked**: `list_installed` never exposes environment variable values
 
 ## Requirements
 
-- Python 3.11+
-- [`uv`](https://docs.astral.sh/uv/) (recommended) or `pip`
+- Python 3.11+ with [`uv`](https://docs.astral.sh/uv/) (recommended), **or**
+- Node.js 18+ (the npm package is a thin wrapper that calls the Python package via `uvx`/`pipx`)
 
 ## License
 
