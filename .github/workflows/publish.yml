@@ -6,7 +6,7 @@ on:
       - v*
 
 jobs:
-  publish:
+  publish-pypi:
     runs-on: ubuntu-latest
     environment:
       name: pypi
@@ -31,5 +31,27 @@ jobs:
       - name: Smoke test (source distribution)
         run: uv run --isolated --no-project --with dist/*.tar.gz tests/smoke_test.py
 
-      - name: Publish
+      - name: Publish to PyPI
         run: uv publish
+
+  publish-npm:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Sync version from tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          cd npm-wrapper
+          npm version "$VERSION" --no-git-tag-version --allow-same-version
+
+      - name: Publish to npm
+        run: cd npm-wrapper && npm publish --provenance --access public
