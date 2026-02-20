@@ -1,0 +1,16 @@
+name: devops
+description: "MCP servers for DevOps workflows: Docker, Kubernetes, and cloud infrastructure."
+version: "1"
+author: mcp-tap
+servers:
+  - name: docker
+    package: "mcp-server-docker"
+    registry: pypi
+  - name: github
+    package: "@modelcontextprotocol/server-github"
+    registry: npm
+    env_vars: [GITHUB_PERSONAL_ACCESS_TOKEN]
+  - name: slack
+    package: "@modelcontextprotocol/server-slack"
+    registry: npm
+    env_vars: [SLACK_BOT_TOKEN, SLACK_TEAM_ID]
