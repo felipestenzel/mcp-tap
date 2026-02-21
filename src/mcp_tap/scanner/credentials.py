@@ -34,6 +34,9 @@ COMPATIBLE_VARS: dict[str, list[str]] = {
     "CLOUDFLARE_API_TOKEN": ["CF_API_TOKEN", "CLOUDFLARE_TOKEN"],
     "TWILIO_AUTH_TOKEN": ["TWILIO_TOKEN"],
     "SENDGRID_API_KEY": ["SENDGRID_KEY"],
+    "FIGMA_API_KEY": ["FIGMA_TOKEN", "FIGMA_ACCESS_TOKEN"],
+    "JIRA_API_TOKEN": ["JIRA_TOKEN", "JIRA_PAT"],
+    "CONFLUENCE_API_TOKEN": ["CONFLUENCE_TOKEN", "CONFLUENCE_PAT"],
 }
 
 # ─── Help URL mapping ────────────────────────────────────────
@@ -56,6 +59,9 @@ CREDENTIAL_HELP: dict[str, str] = {
     "CLOUDFLARE_API_TOKEN": "https://dash.cloudflare.com/profile/api-tokens",
     "TWILIO_AUTH_TOKEN": "https://console.twilio.com/",
     "SENDGRID_API_KEY": "https://app.sendgrid.com/settings/api_keys",
+    "FIGMA_API_KEY": "https://www.figma.com/settings#personal-access-tokens",
+    "JIRA_API_TOKEN": "https://id.atlassian.com/manage-profile/security/api-tokens",
+    "CONFLUENCE_API_TOKEN": "https://id.atlassian.com/manage-profile/security/api-tokens",
 }
 
 # ─── Server → required env vars ──────────────────────────────
@@ -77,6 +83,9 @@ SERVER_ENV_VARS: dict[str, list[str]] = {
     "firebase-mcp-server": ["FIREBASE_TOKEN"],
     "datadog-mcp-server": ["DATADOG_API_KEY"],
     "@cloudflare/mcp-server-cloudflare": ["CLOUDFLARE_API_TOKEN"],
+    "figma-developer-mcp": ["FIGMA_API_KEY"],
+    "@atlassian-dc-mcp/jira": ["JIRA_HOST", "JIRA_API_TOKEN"],
+    "@atlassian-dc-mcp/confluence": ["CONFLUENCE_HOST", "CONFLUENCE_API_TOKEN"],
 }
 
 

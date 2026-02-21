@@ -548,6 +548,9 @@ _NODE_DEP_MAP: dict[str, tuple[str, TechnologyCategory]] = {
     "sqlite3": ("sqlite", TechnologyCategory.DATABASE),
     "@prisma/client": ("postgresql", TechnologyCategory.DATABASE),
     "typeorm": ("postgresql", TechnologyCategory.DATABASE),
+    # Design
+    "figma-js": ("figma", TechnologyCategory.SERVICE),
+    "figma-developer-mcp": ("figma", TechnologyCategory.SERVICE),
     # Services
     "slack-bolt": ("slack", TechnologyCategory.SERVICE),
     "@slack/bolt": ("slack", TechnologyCategory.SERVICE),
@@ -586,6 +589,7 @@ _NODE_PREFIX_MAP: list[tuple[str, str, TechnologyCategory]] = [
     ("@langchain/", "langchain", TechnologyCategory.SERVICE),
     ("@huggingface/", "huggingface", TechnologyCategory.SERVICE),
     ("@contentful/", "contentful", TechnologyCategory.SERVICE),
+    ("@figma/", "figma", TechnologyCategory.SERVICE),
     ("@sanity/", "sanity", TechnologyCategory.SERVICE),
     ("@shopify/", "shopify", TechnologyCategory.SERVICE),
     ("@playwright/", "playwright", TechnologyCategory.SERVICE),
@@ -693,6 +697,9 @@ _ENV_PATTERNS: list[tuple[re.Pattern[str], str, TechnologyCategory]] = [
     (re.compile(r"^CLOUDFLARE_", re.IGNORECASE), "cloudflare", TechnologyCategory.PLATFORM),
     (re.compile(r"^LINEAR_", re.IGNORECASE), "linear", TechnologyCategory.SERVICE),
     (re.compile(r"^NOTION_", re.IGNORECASE), "notion", TechnologyCategory.SERVICE),
+    (re.compile(r"^FIGMA_", re.IGNORECASE), "figma", TechnologyCategory.SERVICE),
+    (re.compile(r"^JIRA_", re.IGNORECASE), "jira", TechnologyCategory.SERVICE),
+    (re.compile(r"^CONFLUENCE_", re.IGNORECASE), "confluence", TechnologyCategory.SERVICE),
 ]
 
 

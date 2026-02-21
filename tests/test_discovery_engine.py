@@ -589,12 +589,14 @@ class TestDetectArchetypes:
         assert "saas_app" in names
 
     def test_saas_app_three_groups(self) -> None:
-        """SaaS with frontend + auth + payments should match."""
+        """SaaS with frontend + auth + payments should match with validated service queries."""
         techs = self._techs("react", "auth0", "stripe")
         archetypes = detect_archetypes(techs)
         saas = next(a for a in archetypes if a.name == "saas_app")
         assert len(saas.matched_technologies) >= 3
-        assert "authentication" in saas.extra_search_queries
+        # Queries are specific service names, not abstract categories
+        assert "vercel" in saas.extra_search_queries
+        assert "authentication" not in saas.extra_search_queries
 
     def test_data_pipeline_detected(self) -> None:
         """Data pipeline: database + queue + python."""

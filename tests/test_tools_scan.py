@@ -6,7 +6,12 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from mcp_tap.models import ConfigLocation, MCPClient
-from mcp_tap.tools.scan import _build_summary, _get_installed_server_names, scan_project
+from mcp_tap.tools.scan import (
+    _build_project_context,
+    _build_summary,
+    _get_installed_server_names,
+    scan_project,
+)
 
 # ─── Fixture paths ───────────────────────────────────────────
 
@@ -472,6 +477,92 @@ class TestBuildSummary:
             env_var_count=0,
         )
         assert "environment variable" not in summary
+
+
+# ═══════════════════════════════════════════════════════════════
+# _build_project_context Unit Tests
+# ═══════════════════════════════════════════════════════════════
+
+
+class TestBuildProjectContext:
+    """Tests for the _build_project_context helper."""
+
+    def _tech(self, name: str, category: str = "language", source: str = "pyproject.toml"):
+        from mcp_tap.models import DetectedTechnology, TechnologyCategory
+
+        return DetectedTechnology(
+            name=name, category=TechnologyCategory(category), source_file=source
+        )
+
+    def test_python_library_inferred_type(self):
+        """Should infer Python Library type from archetype."""
+        from mcp_tap.scanner.archetypes import detect_archetypes
+
+        techs = [
+            self._tech("python"),
+            self._tech("pytest", "service"),
+            self._tech("hatchling", "platform"),
+        ]
+        archetypes = detect_archetypes(techs)
+        ctx = _build_project_context(techs, archetypes)
+        assert ctx["inferred_type"] == "Python Library / CLI Tool"
+
+    def test_python_fallback_without_archetype(self):
+        """Should fall back to 'Python project' when no archetype matches."""
+        ctx = _build_project_context([self._tech("python")], [])
+        assert ctx["inferred_type"] == "Python project"
+
+    def test_node_fallback(self):
+        """Should infer Node.js project from tech."""
+        ctx = _build_project_context([self._tech("node.js", "language")], [])
+        assert ctx["inferred_type"] == "Node.js project"
+
+    def test_ci_platform_github(self):
+        """Should detect GitHub Actions as CI platform."""
+        techs = [self._tech("python"), self._tech("github", "service", ".github/")]
+        ctx = _build_project_context(techs, [])
+        assert ctx["ci_platform"] == "GitHub Actions"
+
+    def test_ci_platform_not_detected(self):
+        """Should emit 'not detected' when no CI platform is found."""
+        ctx = _build_project_context([self._tech("python")], [])
+        assert ctx["ci_platform"] == "not detected"
+
+    def test_distribution_pypi(self):
+        """Should detect PyPI distribution from hatchling."""
+        techs = [self._tech("python"), self._tech("hatchling", "platform")]
+        ctx = _build_project_context(techs, [])
+        assert "PyPI" in ctx["distribution"]
+
+    def test_distribution_docker(self):
+        """Should detect Docker distribution."""
+        techs = [self._tech("python"), self._tech("docker", "platform")]
+        ctx = _build_project_context(techs, [])
+        assert "Docker" in ctx["distribution"]
+
+    def test_services_bucketed(self):
+        """Should bucket service technologies into 'services' key."""
+        techs = [
+            self._tech("python"),
+            self._tech("stripe", "service"),
+            self._tech("github", "service"),
+        ]
+        ctx = _build_project_context(techs, [])
+        assert "services" in ctx
+        assert "stripe" in ctx["services"]
+
+    def test_databases_bucketed(self):
+        """Should bucket database technologies into 'databases' key."""
+        techs = [self._tech("python"), self._tech("postgresql", "database")]
+        ctx = _build_project_context(techs, [])
+        assert "databases" in ctx
+        assert "postgresql" in ctx["databases"]
+
+    def test_empty_technologies(self):
+        """Should handle empty tech list gracefully."""
+        ctx = _build_project_context([], [])
+        assert ctx["inferred_type"] == "Software project"
+        assert ctx["ci_platform"] == "not detected"
 
 
 # ═══════════════════════════════════════════════════════════════

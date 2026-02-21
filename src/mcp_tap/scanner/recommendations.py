@@ -297,6 +297,33 @@ TECHNOLOGY_SERVER_MAP: dict[str, list[ServerRecommendation]] = {
             priority="low",
         ),
     ],
+    "figma": [
+        ServerRecommendation(
+            server_name="figma-mcp",
+            package_identifier="figma-developer-mcp",
+            registry_type=RegistryType.NPM,
+            reason="Figma detected — give your coding agent direct access to designs",
+            priority="high",
+        ),
+    ],
+    "jira": [
+        ServerRecommendation(
+            server_name="jira-mcp",
+            package_identifier="@atlassian-dc-mcp/jira",
+            registry_type=RegistryType.NPM,
+            reason="Jira credentials detected — search, view, and create issues",
+            priority="medium",
+        ),
+    ],
+    "confluence": [
+        ServerRecommendation(
+            server_name="confluence-mcp",
+            package_identifier="@atlassian-dc-mcp/confluence",
+            registry_type=RegistryType.NPM,
+            reason="Confluence credentials detected — access and manage documentation",
+            priority="medium",
+        ),
+    ],
 }
 
 
