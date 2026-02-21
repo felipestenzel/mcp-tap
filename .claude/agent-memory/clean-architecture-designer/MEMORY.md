@@ -1,38 +1,42 @@
 # Clean Architecture Designer Memory -- mcp-tap
 
-## Architecture Audit (2026-02-19) -- Score: 6.7/10
+## Architecture Audit (2026-02-19, updated 2026-02-20)
 
 ### Structure
-- Hexagonal (ports & adapters), 8 MCP tools, ~20 source modules
-- Domain: `models.py` (frozen DCs) + `errors.py` (exception tree)
-- Only 1 Port: `PackageInstaller` Protocol in `installer/base.py`
-- Adapters: `registry/`, `config/`, `installer/`, `connection/`, `scanner/`, `evaluation/`, `inspector/`, `healing/`
-- Application: `tools/` (8 MCP tools)
-- Composition root: `server.py` (incomplete -- only wires httpx + RegistryClient)
-- Dependency direction: tools -> domain <- adapters (mostly correct)
+- Hexagonal (ports & adapters), 12 MCP tools, ~30 source modules
+- Domain: `models.py` (frozen DCs + StrEnums) + `errors.py` (exception tree)
+- Ports: 8 Protocols across packages (RegistryClientPort, ConnectionTesterPort, etc.)
+- Adapters: `registry/`, `config/`, `installer/`, `connection/`, `scanner/`, `evaluation/`, `inspector/`, `healing/`, `security/`
+- Application: `tools/` (12 MCP tools)
+- Composition root: `server.py` -- `AppContext` frozen DC with 8 injected adapters
+- Dependency direction: tools -> models <- adapters (mostly correct)
 
-### Key Violations Found
-1. resolver.py L11 shadows Protocol with Union: `PackageInstaller = Npm|Pip|Docker`
-2. Tools import concrete adapters directly (no DI via ports)
-3. RegistryClient is the only dataclass without `frozen=True, slots=True`
-4. 6+ fields use `str` where enums should exist (scope, status, priority, tier)
-5. `remove.py` uses `object` type annotation instead of `ConfigLocation`
-6. `detection.py` uses lowercase `callable` without generics
-7. Client resolution logic duplicated in 4 tools
-8. `_parse_env_vars` breaks on values containing commas
+### Key Patterns
+- `AppContext` in server.py holds all Tier B (stateful/IO) adapters
+- Tools extract AppContext via `get_context(ctx)` from `tools/_helpers.py`
+- Tier A (stateless) adapters imported directly (no DI wrapping)
+- `scanner/recommendations.py` is SYNC -- needs async for registry bridge
+- `tools/scan.py` does NOT currently access AppContext (unlike search/configure/etc.)
 
-### Missing Ports (priority order)
-- RegistryPort, ConfigReaderPort/WriterPort, ConnectionTesterPort
-- MetadataFetcherPort, ClientDetectorPort, ReadmeFetcherPort
+### Remaining Violations
+1. `RegistryClient` dataclass missing `frozen=True, slots=True`
+2. `ServerRecommendation.priority` is `str` not `StrEnum`
+3. `_parse_env_vars` in configure tool breaks on values containing commas
+4. Some magic strings remain (status fields, tier values)
 
-### Tests: 498 passing, 1.42s
-- Patch-heavy (3-5 @patch per tool test) -- symptom of missing DI
-- No integration tests, no contract tests for Protocol
-- Good parametrized coverage on classifier/fixer/models
+### Dynamic Discovery Engine Design (2026-02-20)
+- Issue: `docs/issues/2026-02-20_dynamic-discovery-engine.md`
+- 3 Layers: L1=expand static map, L2=async registry bridge, L3=hints+archetypes
+- New domain models: `RecommendationSource(StrEnum)`, `HintType(StrEnum)`, `DiscoveryHint`, `StackArchetype`
+- Modified: `ServerRecommendation` gets `source` + `confidence`; `ProjectProfile` gets `discovery_hints` + `archetypes`
+- New port: `RecommendationEnginePort` in `scanner/base.py`
+- Key decision: Pass `RegistryClientPort` (existing port) into `recommend_servers()` -- NOT concrete adapter
+- New modules: `scanner/archetypes.py` (pure), `scanner/hints.py` (pure)
+- Async migration: Only 2 files (`recommendations.py` + `detector.py`); small blast radius
+- Wiring: `tools/scan.py` extracts `app.registry` from AppContext (same as `tools/search.py`)
+- Fallback: 5s timeout on registry queries, empty list on failure, static always available
+- No changes to server.py: AppContext already has `registry: RegistryClientPort`
 
-### Top 5 Recommendations
-1. Define Protocols for all adapter boundaries
-2. Convert magic strings to enums
-3. Build real composition root in server.py
-4. Extract shared `resolve_client_location()` helper
-5. Add integration tests with real config file fixtures
+### Tests: 933 passing
+- Patch-heavy in tool tests -- partially mitigated by AppContext DI
+- `tools/scan.py` tests will need update to mock AppContext when registry bridge is wired

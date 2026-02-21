@@ -36,3 +36,20 @@
 - MCP ecosystem: 5,800+ servers, >50% low-quality
 
 ## Key Risk: Platform Dependency on MCP Registry API (unversioned, already broke once)
+
+## Strategic Analysis: Dynamic Discovery (2026-02-20)
+- VERDICT: Delay. Not the right next priority. Zero users = validate first.
+- Hardcoded map (13 entries) covers most common stacks. Expand to 25-30 instead.
+- The LLM is smarter than our Python scoring logic. Give it raw data, let it reason.
+- scan_project should detect; search_servers should discover. LLM orchestrates.
+- MVP if built later: add `suggested_searches` field (zero API calls), curated map as primary, dynamic as opt-in enrichment with hard 5s timeout.
+- Moat is NOT discovery (commodity). Moat IS install reliability (healing, security gate, validation).
+- Current scoring.py (105 LOC) and credential mapping (136 LOC) duplicate LLM reasoning -- consider simplifying.
+- Key architectural insight: scan_project + search_servers are already the two-step pattern. Just need better tool descriptions to prompt the LLM to use them together.
+
+## Priority Stack (2026-02-20)
+1. Distribution (demo GIF, README, Show HN) -- 0 users is the real problem
+2. Expand hardcoded map to 25-30 entries (S effort, high coverage gain)
+3. Add `suggested_searches` to scan output (S effort, enables LLM-driven discovery)
+4. Polish configure_server error paths (M effort, reduces churn at value moment)
+5. Dynamic Discovery enrichment (L effort, only after user validation)
