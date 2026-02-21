@@ -18,6 +18,7 @@ class RegistryType(StrEnum):
     NPM = "npm"
     PYPI = "pypi"
     OCI = "oci"
+    SMITHERY = "smithery"
 
 
 class MCPClient(StrEnum):
@@ -53,7 +54,13 @@ class PackageInfo:
 
 @dataclass(frozen=True, slots=True)
 class RegistryServer:
-    """An MCP server as returned by the MCP Registry API."""
+    """An MCP server as returned by the MCP Registry API.
+
+    The ``source`` field tracks provenance: ``"official"`` (MCP Registry),
+    ``"smithery"`` (Smithery), or ``"both"`` (merged from both sources).
+    Smithery-specific fields (``use_count``, ``verified``, ``smithery_id``)
+    are ``None`` when the server comes only from the official registry.
+    """
 
     name: str
     description: str
@@ -62,6 +69,11 @@ class RegistryServer:
     packages: list[PackageInfo] = field(default_factory=list)
     is_official: bool = False
     updated_at: str = ""
+    # Smithery-specific fields
+    use_count: int | None = None
+    verified: bool | None = None
+    smithery_id: str | None = None
+    source: str = "official"
 
 
 # ─── Config Models ────────────────────────────────────────────

@@ -71,24 +71,29 @@ async def search_servers(
         results: list[dict[str, object]] = []
         for server in servers:
             for pkg in server.packages:
-                results.append(
-                    asdict(
-                        SearchResult(
-                            name=server.name,
-                            description=server.description,
-                            version=server.version,
-                            registry_type=pkg.registry_type.value,
-                            package_identifier=pkg.identifier,
-                            transport=pkg.transport.value,
-                            is_official=server.is_official,
-                            updated_at=server.updated_at,
-                            env_vars_required=[
-                                ev.name for ev in pkg.environment_variables if ev.is_required
-                            ],
-                            repository_url=server.repository_url,
-                        )
+                result: dict[str, object] = asdict(
+                    SearchResult(
+                        name=server.name,
+                        description=server.description,
+                        version=server.version,
+                        registry_type=pkg.registry_type.value,
+                        package_identifier=pkg.identifier,
+                        transport=pkg.transport.value,
+                        is_official=server.is_official,
+                        updated_at=server.updated_at,
+                        env_vars_required=[
+                            ev.name for ev in pkg.environment_variables if ev.is_required
+                        ],
+                        repository_url=server.repository_url,
                     )
                 )
+                # Smithery provenance signals (present when source is "smithery" or "both")
+                result["source"] = server.source
+                if server.use_count is not None:
+                    result["use_count"] = server.use_count
+                if server.verified is not None:
+                    result["verified"] = server.verified
+                results.append(result)
                 if len(results) >= limit:
                     break
             if len(results) >= limit:
