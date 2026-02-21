@@ -1,6 +1,6 @@
 {
   "name": "mcp-tap",
-  "version": "0.4.2",
+  "version": "0.5.0",
   "description": "The last MCP server you install by hand. Discover, install, and configure MCP servers from inside your AI assistant.",
   "keywords": [
     "mcp",
