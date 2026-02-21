@@ -213,14 +213,11 @@ def _build_project_context(
     is a grounded description the LLM can use to reason about implied needs
     (services the project would benefit from but hasn't adopted yet).
     """
-    tech_names = {
-        t["name"].lower() if isinstance(t, dict) else t.name.lower() for t in technologies
-    }
+    tech_names = {t.name.lower() for t in technologies}
 
     # Infer type from archetypes (highest-confidence label) or language signals
     if archetypes:
-        first = archetypes[0]
-        inferred_type = first["label"] if isinstance(first, dict) else first.label
+        inferred_type = archetypes[0].label
     elif "python" in tech_names:
         inferred_type = "Python project"
     elif "node.js" in tech_names:
@@ -258,11 +255,7 @@ def _build_project_context(
     # Bucket technologies by category for LLM context
     by_category: dict[str, list[str]] = {}
     for tech in technologies:
-        if isinstance(tech, dict):
-            cat, name = tech.get("category", ""), tech.get("name", "")
-        else:
-            cat, name = tech.category.value, tech.name
-        by_category.setdefault(cat, []).append(name)
+        by_category.setdefault(tech.category.value, []).append(tech.name)
 
     context: dict[str, object] = {
         "inferred_type": inferred_type,
