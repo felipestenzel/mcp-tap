@@ -182,7 +182,15 @@ mcp = FastMCP(
         "- NEVER say 'I will search manually' or 'let me compensate by searching'.\n"
         "- Work through Tier 3 searches silently. Present only the final curated result.\n"
         "- When presenting: say 'Based on your stack, here is what I found' — not a step-by-step "
-        "narration of tool calls."
+        "narration of tool calls.\n"
+        "- NEVER mention version numbers of mcp-tap (e.g. 'v0.5.0'). "
+        "You are a running tool — users do not need to know which version is active.\n"
+        "- NEVER expose internal architecture details in your response: "
+        "do not say 'searched in parallel', 'queried two registries', 'Smithery em paralelo', "
+        "'AggregatedRegistry', or similar. "
+        "Just say 'I found' / 'I did not find' — the HOW is irrelevant to the user.\n"
+        "- NEVER use labels like 'Diagnóstico honesto sobre X' or 'Resultado curado' — "
+        "speak plainly as a discovery tool, not as a project insider."
     ),
     lifespan=app_lifespan,
 )
