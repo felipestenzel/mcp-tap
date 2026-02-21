@@ -1,8 +1,8 @@
 # Smithery Integration: Multi-source MCP server discovery
 
 - **Date**: 2026-02-21
-- **Status**: `open`
-- **Branch**: `feature/2026-02-21-smithery-integration` (TBD)
+- **Status**: `done`
+- **Branch**: `main` (merged as v0.5.0)
 - **Priority**: `high`
 
 ## Problem
@@ -206,17 +206,31 @@ New fields added to each result dict:
 - `tests/test_registry_aggregator.py` — NEW: AggregatedRegistry tests
 - `tests/test_smithery_installer.py` — NEW: SmitheryInstaller tests
 
+## Solution
+
+Implemented in v0.5.0 (merged to main, released on PyPI and npm):
+
+- `registry/smithery.py` — `SmitheryClient`: anonymous access by default, `SMITHERY_API_KEY` optional
+- `registry/aggregator.py` — `AggregatedRegistry`: parallel search, dedup by GitHub URL, signal merge
+- `installer/smithery.py` — `SmitheryInstaller`: install via `npx @smithery/cli@latest install`
+- `models.py` — `RegistryType.SMITHERY`, new fields `use_count`, `verified`, `smithery_id`, `source`
+- `tools/search.py` — exposes `source`, `use_count`, `verified` in results; updated docstring
+- `server.py` — `AggregatedRegistry` wired as default; added instructions on Smithery field semantics
+- 52 new tests (1108 → 1160 passing)
+
+`setup_smithery` device flow deferred — anonymous access covers 100% of the use case.
+
 ## Verification
 
-- [ ] `pytest tests/` — all 1108+ tests pass
-- [ ] `ruff check src/ tests/ && ruff format --check src/ tests/` — clean
-- [ ] `search_servers("postgres")` — returns merged results with `use_count`, `verified`, `source`
-- [ ] `search_servers("postgres")` — no duplicates between the two sources
-- [ ] Smithery API down → MCP Registry results still returned (graceful degradation)
-- [ ] Smithery-only server → `source: "smithery"`, install path via SmitheryInstaller
-- [ ] Server in both → `source: "both"`, `package_identifier` from MCP Registry
-- [ ] `SMITHERY_API_KEY` set → requests include `Authorization: Bearer` header
-- [ ] `setup_smithery` tool → device flow opens browser, saves key
+- [x] `pytest tests/` — 1160 tests pass (was 1108)
+- [x] `ruff check src/ tests/ && ruff format --check src/ tests/` — clean
+- [x] `search_servers("postgres")` — returns merged results with `use_count`, `verified`, `source`
+- [x] `search_servers("postgres")` — no duplicates between the two sources
+- [x] Smithery API down → MCP Registry results still returned (graceful degradation)
+- [x] Smithery-only server → `source: "smithery"`, install path via SmitheryInstaller
+- [x] Server in both → `source: "both"`, `package_identifier` from MCP Registry
+- [x] `SMITHERY_API_KEY` set → requests include `Authorization: Bearer` header
+- [ ] `setup_smithery` tool → deferred (not needed — anonymous access works)
 
 ## Lessons Learned
 

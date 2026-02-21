@@ -58,9 +58,11 @@ async def search_servers(
     Returns:
         List of servers, each with: name, description, version,
         registry_type, package_identifier, transport, is_official,
-        env_vars_required, and repository_url. When project_path is set,
-        also includes relevance, match_reason, and credential_status.
-        When evaluate is True, also includes maturity.
+        env_vars_required, repository_url, and source ("official" |
+        "smithery" | "both"). When project_path is set, also includes
+        relevance, match_reason, and credential_status. When evaluate is
+        True, also includes maturity. Smithery results also include
+        use_count (popularity) and verified (quality badge).
     """
     try:
         app = get_context(ctx)
