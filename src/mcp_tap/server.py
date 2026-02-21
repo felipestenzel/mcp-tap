@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -20,8 +21,10 @@ from mcp_tap.inspector.base import ReadmeFetcherPort
 from mcp_tap.inspector.fetcher import DefaultReadmeFetcher
 from mcp_tap.installer.base import InstallerResolverPort
 from mcp_tap.installer.resolver import DefaultInstallerResolver
+from mcp_tap.registry.aggregator import AggregatedRegistry
 from mcp_tap.registry.base import RegistryClientPort
 from mcp_tap.registry.client import RegistryClient
+from mcp_tap.registry.smithery import SmitheryClient
 from mcp_tap.security.base import SecurityGatePort
 from mcp_tap.security.gate import DefaultSecurityGate
 from mcp_tap.tools.configure import configure_server
@@ -65,7 +68,12 @@ async def app_lifespan(server: FastMCP) -> AsyncIterator[AppContext]:
         limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
         transport=httpx.AsyncHTTPTransport(retries=3),
     ) as http_client:
-        registry = RegistryClient(http_client)
+        official_registry = RegistryClient(http_client)
+        smithery_client = SmitheryClient(
+            http_client,
+            api_key=os.environ.get("SMITHERY_API_KEY", ""),
+        )
+        registry = AggregatedRegistry(official=official_registry, smithery=smithery_client)
         github_metadata = DefaultGitHubMetadata(http_client)
         readme_fetcher = DefaultReadmeFetcher(http_client)
         security_gate = DefaultSecurityGate(http_client)

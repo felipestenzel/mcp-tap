@@ -43,13 +43,17 @@ class TestAppLifespan:
             assert client.follow_redirects is True
 
     async def test_creates_registry_client(self):
-        """Should create a RegistryClient instance in the context."""
+        """Should create an AggregatedRegistry (wrapping RegistryClient + SmitheryClient)."""
+        from mcp_tap.registry.aggregator import AggregatedRegistry
         from mcp_tap.registry.client import RegistryClient
+        from mcp_tap.registry.smithery import SmitheryClient
 
         mock_server = MagicMock()
 
         async with app_lifespan(mock_server) as ctx:
-            assert isinstance(ctx.registry, RegistryClient)
+            assert isinstance(ctx.registry, AggregatedRegistry)
+            assert isinstance(ctx.registry.official, RegistryClient)
+            assert isinstance(ctx.registry.smithery, SmitheryClient)
 
     async def test_client_closed_after_lifespan(self):
         """Should close httpx.AsyncClient when lifespan exits."""

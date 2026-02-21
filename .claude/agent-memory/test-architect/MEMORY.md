@@ -5,7 +5,7 @@
 - Test dir: `tests/`
 - Run: `pytest tests/`
 - Linter: `ruff check src/ tests/`
-- Current: 907 tests passing (config, registry, models, scanner, scoring, tools, healing, subprocess, server, evaluation, lockfile, differ, verify, conflicts, restore, workflow, stacks)
+- Current: 1160 tests passing (config, registry, models, scanner, scoring, tools, healing, subprocess, server, evaluation, lockfile, differ, verify, conflicts, restore, workflow, stacks, smithery_client, registry_aggregator, smithery_installer)
 - Mock all external I/O (httpx, subprocess, filesystem)
 - Target: >80% coverage on new code
 
@@ -146,3 +146,26 @@
 - CI images matched by substring; python not in _CI_IMAGE_MAP so not matched
 - _GITLAB_KEYWORDS frozenset prevents stages/variables/cache/etc. from being treated as jobs
 - Hidden jobs (starting with ".") are skipped in GitLab CI
+
+## Smithery + Aggregator + SmitheryInstaller Tests (2026-02-21)
+- **test_smithery_client.py** -- 19 tests across 3 classes (Search 9, GetServer 3, Parsing 7)
+  - SmitheryClient uses `httpx.AsyncClient` as `http` attr -- mock with `AsyncMock(spec=httpx.AsyncClient)`
+  - 429 retry: `_MAX_429_RETRIES=1` means 2 total attempts; patch `mcp_tap.registry.smithery.asyncio.sleep`
+  - get_server 404: the _get method raises RegistryError with "404" in msg; get_server catches and returns None
+  - URL encoding: `urlquote(name, safe="")` encodes slash as %2F
+  - Parsing: _parse_server is tolerant of missing fields; verified -> is_official, homepage -> repository_url
+  - pageSize clamped to min(max(limit, 1), 100)
+- **test_registry_aggregator.py** -- 18 tests across 4 classes (Search 5, Dedup 6, GetServer 3, ExtractGithubKey 7)
+  - AggregatedRegistry takes two RegistryClientPort mocks (official, smithery)
+  - Uses `asyncio.gather(..., return_exceptions=True)` -- failures become exceptions in results list
+  - Dedup by GitHub URL: `_extract_github_key` regex, always lowercase
+  - Merge: official base + smithery signals (use_count, verified, smithery_id), source="both"
+  - Sort: both(0) < official(1) < smithery(2) via _sort_key
+  - get_server: tries official first, falls back to smithery if None
+- **test_smithery_installer.py** -- 15 tests across 4 classes (Availability 2, Install 6, BuildCommand 2, Uninstall 2)
+  - Frozen dataclass (frozen=True, slots=True)
+  - Patch `mcp_tap.installer.smithery.shutil.which` for availability
+  - Patch `mcp_tap.installer.smithery.run_command` for install
+  - Install uses `npx -y @smithery/cli@latest install <id> --client claude --config {}`
+  - Uninstall is a no-op returning success=True (Smithery CLI has no uninstall)
+  - build_server_command: `("npx", ["-y", "@smithery/cli@latest", "run", identifier])`

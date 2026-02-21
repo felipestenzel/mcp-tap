@@ -7,18 +7,21 @@ from mcp_tap.installer.base import PackageInstaller
 from mcp_tap.installer.docker import DockerInstaller
 from mcp_tap.installer.npm import NpmInstaller
 from mcp_tap.installer.pip import PipInstaller
+from mcp_tap.installer.smithery import SmitheryInstaller
 from mcp_tap.models import RegistryType
 
 _INSTALLERS: dict[RegistryType, type] = {
     RegistryType.NPM: NpmInstaller,
     RegistryType.PYPI: PipInstaller,
     RegistryType.OCI: DockerInstaller,
+    RegistryType.SMITHERY: SmitheryInstaller,
 }
 
 _INSTALL_URLS: dict[RegistryType, str] = {
     RegistryType.NPM: "https://nodejs.org/",
     RegistryType.PYPI: "https://docs.astral.sh/uv/getting-started/installation/",
     RegistryType.OCI: "https://docs.docker.com/get-docker/",
+    RegistryType.SMITHERY: "https://docs.smithery.ai/",
 }
 
 
