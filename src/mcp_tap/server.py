@@ -96,7 +96,10 @@ async def app_lifespan(server: FastMCP) -> AsyncIterator[AppContext]:
 mcp = FastMCP(
     "mcp-tap",
     instructions=(
-        "mcp-tap discovers, installs, and configures MCP servers for the user. "
+        "mcp-tap is an MCP server that discovers, installs, and configures OTHER MCP servers. "
+        "It is NOT a network proxy, traffic inspector, or protocol debugger. "
+        "Think of it as a package manager for MCP servers: "
+        "scan a project, find the right servers, install them, verify they work. "
         "\n\n"
         "## When to use mcp-tap\n\n"
         "Invoke mcp-tap tools automatically — without waiting to be asked — whenever the user:\n"
