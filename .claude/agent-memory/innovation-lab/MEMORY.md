@@ -1,8 +1,8 @@
 # Innovation Lab Memory -- mcp-tap
 
 ## Project: mcp-tap (MCP meta-server)
-- v0.2.4, Python 3.11+, FastMCP, hexagonal architecture
-- 8 tools: scan_project, search_servers, configure_server, test_connection, check_health, inspect_server, list_installed, remove_server
+- v0.3.3, Python 3.11+, FastMCP, hexagonal architecture
+- 12 tools: scan_project, search_servers, configure_server, test_connection, check_health, inspect_server, list_installed, remove_server, verify, restore, apply_stack + lockfile hooks
 
 ## Strategic Research (2026-02-19)
 
@@ -40,6 +40,30 @@ Differentiation: conversational, project-aware, self-healing, NO context switchi
 - v0.3: Lockfile + Security Gate
 - v0.4: Stacks + Workflow Understanding
 - v0.5: Conflict Detection + Context Budget
+
+## Discovery Pipeline Analysis (2026-02-20)
+- Current bottleneck: TECHNOLOGY_SERVER_MAP has 13 entries, scanner detects 24 tech names, 17 have NO recommendations
+- Registry has hundreds of servers, search API only supports substring matching (no tags/categories)
+- Common services in registry but NOT detected: sentry, stripe, supabase, firebase, notion, linear, figma, datadog, vercel
+- Key architectural insight: recommend_servers() is sync, pure static lookup. Making it async + injecting RegistryClientPort unlocks dynamic search.
+- LLM-in-the-loop strategy: return `discovery_hints` and `next_actions` in scan output to guide autonomous follow-up searches
+- See detailed analysis in conversation from 2026-02-20
+- Priority build order: (1) dynamic registry bridge, (2) LLM discovery hints, (3) workflow inference, (4) archetype detection, (5) publisher pattern detection, (6) progressive discovery, (7) community intelligence
+- Archetypes to detect: "Next.js SaaS", "Python API Backend", "Data Pipeline", "Infrastructure Heavy"
+- Pattern-based publisher detection via @org/ prefixes covers ~90% of common services without hardcoding each package
+
+## Dynamic Discovery Engine Deep Dive (2026-02-20)
+- Full analysis at: `docs/experiments/2026-02-20_dynamic-discovery-deep-dive.md`
+- Current state: 94 detection patterns, 13 recommendation entries, 17/24 techs unmapped
+- Proposed: 350+ detection patterns, 50+ recommendation entries
+- 6 key expansion areas: @org/ prefix matching (30 patterns), expanded Python deps (+30), platform file detection (+47), directory detection (+15), env var patterns (+29), scripts mining (+19)
+- 10 stack archetypes defined: SaaS, API Backend, Data Pipeline, DevOps, AI/ML, Monorepo, JAMStack, Mobile Backend, E-Commerce, Docs/Knowledge
+- 8 discovery hint types (up from 4): workflow_inference, stack_archetype, unmapped_technology, env_var_hint, deployment_target, missing_complement, file_structure_hint, monorepo_workspace
+- Wild ideas that work: confidence stacking (probability union), package.json scripts mining, next_actions choreography, missing complement hints
+- Registry API observed returning empty results (2026-02-20) -- confirms need for robust static map
+- Phase order: (1) detection expansion, (2) static map expansion, (3) hints+archetypes, (4) dynamic bridge
+- All new model fields are additive with defaults -- backward compatible
+- Implementation: ~350 lines of new detection patterns, ~200 lines archetypes, ~300 lines hints
 
 ## Lockfile Spec Decisions (2026-02-19)
 - Spec at: `docs/specs/mcp-tap-lockfile-v1.md`
