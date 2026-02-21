@@ -22,7 +22,9 @@ _ARCHETYPE_DEFS: dict[str, dict] = {
             {"stripe", "paddle"},
         ],
         "min_groups": 2,
-        "extra_queries": ["authentication", "payments", "analytics", "email"],
+        # Specific service names validated against the MCP Registry.
+        # Do NOT add abstract category queries (e.g. "monitoring") — they return zero results.
+        "extra_queries": ["vercel", "sendgrid", "analytics"],
     },
     "data_pipeline": {
         "label": "Data Pipeline",
@@ -32,7 +34,9 @@ _ARCHETYPE_DEFS: dict[str, dict] = {
             {"python"},
         ],
         "min_groups": 2,
-        "extra_queries": ["data processing", "etl", "scheduling"],
+        # No validated specific-service queries for this archetype yet.
+        # LLM handles Tier 3 reasoning for data pipeline needs.
+        "extra_queries": [],
     },
     "devops_infra": {
         "label": "DevOps / Infrastructure",
@@ -42,7 +46,9 @@ _ARCHETYPE_DEFS: dict[str, dict] = {
             {"aws", "gcp", "azure"},
         ],
         "min_groups": 2,
-        "extra_queries": ["monitoring", "logging", "deployment"],
+        # "datadog" and "grafana" are in TECHNOLOGY_SERVER_MAP (direct Tier 1 mapping).
+        # Listed here as fallback for archetype-triggered Tier 3 searches.
+        "extra_queries": ["datadog", "grafana"],
     },
     "ai_ml_app": {
         "label": "AI/ML Application",
@@ -52,7 +58,8 @@ _ARCHETYPE_DEFS: dict[str, dict] = {
             {"postgresql", "redis"},
         ],
         "min_groups": 2,
-        "extra_queries": ["embeddings", "vector database", "prompt engineering"],
+        # No validated specific-service queries. LLM handles Tier 3 (vector DBs, observability).
+        "extra_queries": [],
     },
     "fullstack_monorepo": {
         "label": "Full-Stack Monorepo",
@@ -62,7 +69,7 @@ _ARCHETYPE_DEFS: dict[str, dict] = {
             {"node.js", "python"},
         ],
         "min_groups": 2,
-        "extra_queries": ["monorepo", "workspace management"],
+        "extra_queries": ["vercel"],
     },
     "ecommerce": {
         "label": "E-Commerce",
@@ -72,7 +79,7 @@ _ARCHETYPE_DEFS: dict[str, dict] = {
             {"postgresql", "mongodb"},
         ],
         "min_groups": 2,
-        "extra_queries": ["payments", "inventory", "email marketing"],
+        "extra_queries": ["shopify", "sendgrid"],
     },
     "python_library": {
         "label": "Python Library / CLI Tool",

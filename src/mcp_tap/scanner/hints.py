@@ -40,6 +40,9 @@ _ENV_SEARCH_HINTS: list[tuple[re.Pattern[str], str, str]] = [
     (re.compile(r"^DATADOG_", re.IGNORECASE), "datadog", "Datadog credentials detected"),
     (re.compile(r"^LINEAR_", re.IGNORECASE), "linear", "Linear credentials detected"),
     (re.compile(r"^NOTION_", re.IGNORECASE), "notion", "Notion credentials detected"),
+    (re.compile(r"^FIGMA_", re.IGNORECASE), "figma", "Figma API key detected"),
+    (re.compile(r"^JIRA_", re.IGNORECASE), "jira", "Jira credentials detected"),
+    (re.compile(r"^CONFLUENCE_", re.IGNORECASE), "confluence", "Confluence credentials detected"),
 ]
 
 
