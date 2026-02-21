@@ -214,11 +214,13 @@ class TestSmitheryClientGetServer:
         """Should return None when API responds with 404."""
         client = _make_client()
         resp_404 = _status_response(404)
-        client.http.get = AsyncMock(side_effect=httpx.HTTPStatusError(
-            "404 Not Found",
-            request=MagicMock(),
-            response=resp_404,
-        ))
+        client.http.get = AsyncMock(
+            side_effect=httpx.HTTPStatusError(
+                "404 Not Found",
+                request=MagicMock(),
+                response=resp_404,
+            )
+        )
         # The _get method catches HTTPStatusError and raises RegistryError.
         # get_server catches RegistryError with "404" in message and returns None.
         # To test this properly, we need to make _get raise RegistryError with "404".

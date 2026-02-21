@@ -34,9 +34,7 @@ def make_smithery_server(
     return RegistryServer(
         name=smithery_id,
         description=description,
-        packages=[
-            PackageInfo(registry_type=RegistryType.SMITHERY, identifier=smithery_id)
-        ],
+        packages=[PackageInfo(registry_type=RegistryType.SMITHERY, identifier=smithery_id)],
         repository_url=github_url,
         use_count=use_count,
         verified=verified,
