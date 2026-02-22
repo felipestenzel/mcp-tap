@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
+import httpx
 from mcp.client.session import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
@@ -104,3 +105,63 @@ async def _run_connection_test(
             server_name=server_name,
             tools_discovered=tool_names,
         )
+
+
+class HttpReachabilityChecker:
+    """Validates HTTP MCP server reachability via HEAD/GET -- no process spawn.
+
+    401/403 are treated as reachable (OAuth-gated servers).
+    5xx and connection errors are failures.
+    Always returns a result -- never raises.
+    """
+
+    def __init__(self, http_client: httpx.AsyncClient) -> None:
+        self._http = http_client
+
+    async def check_reachability(
+        self,
+        server_name: str,
+        url: str,
+        *,
+        timeout_seconds: int = 10,
+    ) -> ConnectionTestResult:
+        try:
+            resp = await self._http.head(url, timeout=float(timeout_seconds))
+            reachable = resp.status_code < 500
+            if reachable:
+                return ConnectionTestResult(
+                    success=True, server_name=server_name, tools_discovered=[]
+                )
+            return ConnectionTestResult(
+                success=False,
+                server_name=server_name,
+                error=(
+                    f"Server responded with HTTP {resp.status_code}. "
+                    "May be temporarily unavailable."
+                ),
+            )
+        except httpx.ConnectError:
+            return ConnectionTestResult(
+                success=False,
+                server_name=server_name,
+                error=(
+                    f"Cannot reach {url}. Server may be down or require VPN. "
+                    "Config was written — it may work when reachable."
+                ),
+            )
+        except httpx.TimeoutException:
+            return ConnectionTestResult(
+                success=False,
+                server_name=server_name,
+                error=(
+                    f"Timeout connecting to {url}. "
+                    "Server may require browser authentication (OAuth). "
+                    "Config was written — restart your MCP client to activate."
+                ),
+            )
+        except Exception as exc:
+            return ConnectionTestResult(
+                success=False,
+                server_name=server_name,
+                error=f"Unexpected error checking {url}: {type(exc).__name__}",
+            )

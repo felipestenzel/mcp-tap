@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 
@@ -95,6 +96,28 @@ class ServerConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class HttpServerConfig:
+    """An HTTP/SSE MCP server entry using the native URL format.
+
+    Supported natively by Claude Code. Falls back to mcp-remote for other clients.
+    Writes: {"type": "http"|"sse", "url": "https://..."}
+    """
+
+    url: str
+    transport_type: str  # "http" or "sse"
+    env: Mapping[str, str] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, object]:
+        result: dict[str, object] = {"type": self.transport_type, "url": self.url}
+        if self.env:
+            result["env"] = dict(self.env)
+        return result
+
+
+HTTP_NATIVE_CLIENTS: frozenset[MCPClient] = frozenset({MCPClient.CLAUDE_CODE})
+
+
+@dataclass(frozen=True, slots=True)
 class ConfigLocation:
     """Location of an MCP client's config file on disk."""
 
@@ -109,7 +132,7 @@ class InstalledServer:
     """An MCP server currently configured in a client config file."""
 
     name: str
-    config: ServerConfig
+    config: ServerConfig | HttpServerConfig
     source_file: str
 
 

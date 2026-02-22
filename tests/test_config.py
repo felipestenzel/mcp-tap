@@ -11,7 +11,7 @@ import pytest
 from mcp_tap.config.reader import parse_servers, read_config
 from mcp_tap.config.writer import remove_server_config, write_server_config
 from mcp_tap.errors import ConfigReadError, ConfigWriteError
-from mcp_tap.models import ServerConfig
+from mcp_tap.models import HttpServerConfig, MCPClient, ServerConfig
 
 
 class TestReadConfig:
@@ -275,3 +275,145 @@ class TestAsyncReadConfig:
 
         result = await aread_config(tmp_path / "does_not_exist.json")
         assert result == {"mcpServers": {}}
+
+
+# === parse_servers HTTP Config Tests =========================================
+
+
+class TestParseServersHttpConfig:
+    """Tests for parse_servers handling of HTTP/SSE server config entries."""
+
+    def test_http_type_returns_http_server_config(self):
+        """Should parse {"type":"http","url":"..."} as HttpServerConfig."""
+        raw = {
+            "mcpServers": {
+                "vercel": {
+                    "type": "http",
+                    "url": "https://mcp.vercel.com",
+                }
+            }
+        }
+        servers = parse_servers(raw, source_file="/path/config.json")
+        assert len(servers) == 1
+        assert servers[0].name == "vercel"
+        assert isinstance(servers[0].config, HttpServerConfig)
+        assert servers[0].config.url == "https://mcp.vercel.com"
+        assert servers[0].config.transport_type == "http"
+
+    def test_sse_type_returns_http_server_config_with_sse(self):
+        """Should parse {"type":"sse","url":"..."} as HttpServerConfig(transport_type="sse")."""
+        raw = {
+            "mcpServers": {
+                "sse-server": {
+                    "type": "sse",
+                    "url": "https://sse.example.com/v1/sse",
+                }
+            }
+        }
+        servers = parse_servers(raw)
+        assert len(servers) == 1
+        assert isinstance(servers[0].config, HttpServerConfig)
+        assert servers[0].config.transport_type == "sse"
+        assert servers[0].config.url == "https://sse.example.com/v1/sse"
+
+    def test_streamable_http_type_returns_http_server_config(self):
+        """Should parse {"type":"streamable-http","url":"..."} as HttpServerConfig."""
+        raw = {
+            "mcpServers": {
+                "remote": {
+                    "type": "streamable-http",
+                    "url": "https://remote.example.com/mcp",
+                }
+            }
+        }
+        servers = parse_servers(raw)
+        assert len(servers) == 1
+        assert isinstance(servers[0].config, HttpServerConfig)
+        # streamable-http -> transport_type="http"
+        assert servers[0].config.transport_type == "http"
+
+    def test_http_config_with_env(self):
+        """Should parse env vars in HTTP server config."""
+        raw = {
+            "mcpServers": {
+                "vercel": {
+                    "type": "http",
+                    "url": "https://mcp.vercel.com",
+                    "env": {"API_KEY": "sk-123"},
+                }
+            }
+        }
+        servers = parse_servers(raw)
+        assert servers[0].config.env == {"API_KEY": "sk-123"}
+
+    def test_stdio_entry_returns_server_config(self):
+        """Should still return ServerConfig for regular stdio entries."""
+        raw = {
+            "mcpServers": {
+                "pg": {
+                    "command": "npx",
+                    "args": ["-y", "pg-mcp"],
+                }
+            }
+        }
+        servers = parse_servers(raw)
+        assert len(servers) == 1
+        assert isinstance(servers[0].config, ServerConfig)
+        assert servers[0].config.command == "npx"
+
+    def test_mixed_stdio_and_http(self):
+        """Should handle a mix of stdio and HTTP server entries."""
+        raw = {
+            "mcpServers": {
+                "pg": {"command": "npx", "args": ["-y", "pg-mcp"]},
+                "vercel": {"type": "http", "url": "https://mcp.vercel.com"},
+            }
+        }
+        servers = parse_servers(raw)
+        assert len(servers) == 2
+        # First is stdio
+        stdio_srv = next(s for s in servers if s.name == "pg")
+        assert isinstance(stdio_srv.config, ServerConfig)
+        # Second is HTTP
+        http_srv = next(s for s in servers if s.name == "vercel")
+        assert isinstance(http_srv.config, HttpServerConfig)
+
+    def test_entry_without_url_and_type_returns_server_config(self):
+        """Entry with type but no url should fall through to ServerConfig."""
+        raw = {"mcpServers": {"weird": {"type": "stdio", "command": "npx", "args": ["pkg"]}}}
+        servers = parse_servers(raw)
+        assert len(servers) == 1
+        assert isinstance(servers[0].config, ServerConfig)
+
+
+# === client_supports_http_native Tests =======================================
+
+
+class TestClientSupportsHttpNative:
+    """Tests for client_supports_http_native detection function."""
+
+    def test_claude_code_supports_http_native(self):
+        from mcp_tap.config.detection import client_supports_http_native
+
+        assert client_supports_http_native(MCPClient.CLAUDE_CODE) is True
+
+    def test_cursor_does_not_support_http_native(self):
+        from mcp_tap.config.detection import client_supports_http_native
+
+        assert client_supports_http_native(MCPClient.CURSOR) is False
+
+    def test_claude_desktop_does_not_support_http_native(self):
+        from mcp_tap.config.detection import client_supports_http_native
+
+        assert client_supports_http_native(MCPClient.CLAUDE_DESKTOP) is False
+
+    def test_windsurf_does_not_support_http_native(self):
+        from mcp_tap.config.detection import client_supports_http_native
+
+        assert client_supports_http_native(MCPClient.WINDSURF) is False
+
+    def test_http_native_clients_constant(self):
+        """HTTP_NATIVE_CLIENTS should contain exactly CLAUDE_CODE."""
+        from mcp_tap.models import HTTP_NATIVE_CLIENTS
+
+        assert frozenset({MCPClient.CLAUDE_CODE}) == HTTP_NATIVE_CLIENTS

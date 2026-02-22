@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from mcp_tap.errors import McpTapError
 from mcp_tap.models import (
     ConfigLocation,
+    HttpServerConfig,
     InstalledServer,
     MCPClient,
     ServerConfig,
@@ -279,3 +280,108 @@ class TestListInstalled:
         assert result[0]["success"] is False
         assert "RuntimeError" in result[0]["error"]
         ctx.error.assert_awaited_once()
+
+
+# --- HTTP Server Config in list output ----------------------------------------
+
+
+def _http_installed_server(
+    name: str = "vercel",
+    url: str = "https://mcp.vercel.com",
+    transport_type: str = "http",
+    env: dict[str, str] | None = None,
+) -> InstalledServer:
+    return InstalledServer(
+        name=name,
+        config=HttpServerConfig(url=url, transport_type=transport_type, env=env or {}),
+        source_file="/tmp/fake_config.json",
+    )
+
+
+class TestListInstalledHttpServers:
+    """Tests for list_installed output format with HTTP servers."""
+
+    @patch("mcp_tap.tools.list.parse_servers")
+    @patch("mcp_tap.tools.list.read_config")
+    @patch("mcp_tap.tools.list.detect_clients")
+    async def test_http_server_has_type_and_url(self, mock_detect, mock_read, mock_parse):
+        """HTTP server output should have type and url, not command and args."""
+        mock_detect.return_value = [_fake_location()]
+        mock_read.return_value = {"mcpServers": {}}
+        mock_parse.return_value = [_http_installed_server()]
+
+        result = await list_installed(_make_ctx())
+
+        assert len(result) == 1
+        assert result[0]["name"] == "vercel"
+        assert result[0]["type"] == "http"
+        assert result[0]["url"] == "https://mcp.vercel.com"
+        # Should NOT have command/args keys
+        assert "command" not in result[0]
+        assert "args" not in result[0]
+
+    @patch("mcp_tap.tools.list.parse_servers")
+    @patch("mcp_tap.tools.list.read_config")
+    @patch("mcp_tap.tools.list.detect_clients")
+    async def test_http_server_sse_type(self, mock_detect, mock_read, mock_parse):
+        """SSE server should report type='sse'."""
+        mock_detect.return_value = [_fake_location()]
+        mock_read.return_value = {"mcpServers": {}}
+        mock_parse.return_value = [
+            _http_installed_server("sse-srv", "https://sse.example.com", transport_type="sse")
+        ]
+
+        result = await list_installed(_make_ctx())
+
+        assert result[0]["type"] == "sse"
+
+    @patch("mcp_tap.tools.list.parse_servers")
+    @patch("mcp_tap.tools.list.read_config")
+    @patch("mcp_tap.tools.list.detect_clients")
+    async def test_http_server_env_masked(self, mock_detect, mock_read, mock_parse):
+        """HTTP server env vars should be masked like stdio servers."""
+        mock_detect.return_value = [_fake_location()]
+        mock_read.return_value = {"mcpServers": {}}
+        mock_parse.return_value = [
+            _http_installed_server(env={"API_KEY": "sk_abcdefghijklmnopqrstuvwxyz"})
+        ]
+
+        result = await list_installed(_make_ctx())
+
+        assert result[0]["env"]["API_KEY"] == "***"
+
+    @patch("mcp_tap.tools.list.parse_servers")
+    @patch("mcp_tap.tools.list.read_config")
+    @patch("mcp_tap.tools.list.detect_clients")
+    async def test_stdio_server_still_has_command_args(self, mock_detect, mock_read, mock_parse):
+        """Stdio server output should still have command and args (no regression)."""
+        mock_detect.return_value = [_fake_location()]
+        mock_read.return_value = {"mcpServers": {}}
+        mock_parse.return_value = [_installed_server("pg-mcp")]
+
+        result = await list_installed(_make_ctx())
+
+        assert result[0]["command"] == "npx"
+        assert result[0]["args"] == ["-y", "pg-mcp"]
+        assert "type" not in result[0]
+        assert "url" not in result[0]
+
+    @patch("mcp_tap.tools.list.parse_servers")
+    @patch("mcp_tap.tools.list.read_config")
+    @patch("mcp_tap.tools.list.detect_clients")
+    async def test_mixed_http_and_stdio_servers(self, mock_detect, mock_read, mock_parse):
+        """Should handle mixed HTTP and stdio server entries."""
+        mock_detect.return_value = [_fake_location()]
+        mock_read.return_value = {"mcpServers": {}}
+        mock_parse.return_value = [
+            _installed_server("pg-mcp"),
+            _http_installed_server("vercel"),
+        ]
+
+        result = await list_installed(_make_ctx())
+
+        assert len(result) == 2
+        stdio = next(r for r in result if r["name"] == "pg-mcp")
+        http = next(r for r in result if r["name"] == "vercel")
+        assert "command" in stdio
+        assert "url" in http

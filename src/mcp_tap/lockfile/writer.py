@@ -16,7 +16,7 @@ from pathlib import Path
 from mcp_tap.errors import LockfileWriteError
 from mcp_tap.lockfile.hasher import compute_tools_hash
 from mcp_tap.lockfile.reader import read_lockfile
-from mcp_tap.models import LockedConfig, LockedServer, Lockfile, ServerConfig
+from mcp_tap.models import HttpServerConfig, LockedConfig, LockedServer, Lockfile, ServerConfig
 
 logger = logging.getLogger(__name__)
 
@@ -128,7 +128,7 @@ def add_server_to_lockfile(
     package_identifier: str,
     registry_type: str,
     version: str,
-    server_config: ServerConfig,
+    server_config: ServerConfig | HttpServerConfig,
     tools: list[str] | None = None,
     repository_url: str = "",
 ) -> None:
@@ -141,7 +141,7 @@ def add_server_to_lockfile(
         project_path: Root directory of the project.
         name: Server name (key in the servers map).
         package_identifier: Package name from the registry.
-        registry_type: One of "npm", "pypi", "oci".
+        registry_type: One of "npm", "pypi", "oci", or an HTTP transport type.
         version: Exact installed version.
         server_config: The runtime server configuration.
         tools: Tool names discovered during validation.
@@ -153,11 +153,18 @@ def add_server_to_lockfile(
     now = _now_iso()
     tools_list = sorted(tools) if tools else []
 
-    locked_config = LockedConfig(
-        command=server_config.command,
-        args=list(server_config.args),
-        env_keys=sorted(server_config.env.keys()) if server_config.env else [],
-    )
+    if isinstance(server_config, HttpServerConfig):
+        locked_config = LockedConfig(
+            command="",
+            args=[server_config.url],
+            env_keys=sorted(server_config.env.keys()) if server_config.env else [],
+        )
+    else:
+        locked_config = LockedConfig(
+            command=server_config.command,
+            args=list(server_config.args),
+            env_keys=sorted(server_config.env.keys()) if server_config.env else [],
+        )
 
     entry = LockedServer(
         package_identifier=package_identifier,

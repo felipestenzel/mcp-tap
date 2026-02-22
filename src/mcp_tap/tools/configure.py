@@ -9,7 +9,7 @@ from pathlib import Path
 
 from mcp.server.fastmcp import Context
 
-from mcp_tap.config.detection import resolve_config_locations
+from mcp_tap.config.detection import client_supports_http_native, resolve_config_locations
 from mcp_tap.config.writer import write_server_config
 from mcp_tap.connection.base import ConnectionTesterPort
 from mcp_tap.errors import McpTapError
@@ -18,6 +18,7 @@ from mcp_tap.models import (
     ConfigLocation,
     ConfigureResult,
     ConnectionTestResult,
+    HttpServerConfig,
     RegistryType,
     SecurityReport,
     ServerConfig,
@@ -114,27 +115,28 @@ async def configure_server(
                 )
             )
 
-        # Step 2: For HTTP transport servers, skip install and use mcp-remote bridge
+        # Step 2: For HTTP transport servers, use native config or mcp-remote fallback
         if _is_http_transport(package_identifier, registry_type):
-            logger.info(
-                "HTTP transport detected for %s — using mcp-remote bridge",
-                package_identifier,
-            )
-            await ctx.info("HTTP server detected — configuring via mcp-remote bridge...")
+            logger.info("HTTP transport detected for %s", package_identifier)
+            await ctx.info("HTTP server detected — checking reachability...")
 
             env = _parse_env_vars(env_vars)
-            server_config = ServerConfig(
-                command="npx",
-                args=["-y", "mcp-remote", package_identifier],
+            server_config: ServerConfig | HttpServerConfig = _build_http_server_config(
+                url=package_identifier,
                 env=env,
+                locations=locations,
+                registry_type=registry_type,
             )
 
-            # Security gate still runs for HTTP servers
+            # Security gate (command="" for native config — gate passes empty commands)
+            is_native = isinstance(server_config, HttpServerConfig)
+            sec_command = "" if is_native else server_config.command
+            sec_args: list[str] = [] if is_native else list(server_config.args)
             security_report = await _run_security_check(
                 package_identifier=package_identifier,
                 repository_url="",
-                command=server_config.command,
-                args=list(server_config.args),
+                command=sec_command,
+                args=sec_args,
                 ctx=ctx,
                 security_gate=app.security_gate,
             )
@@ -148,43 +150,41 @@ async def configure_server(
                             f"Security gate BLOCKED installation of "
                             f"'{server_name}': "
                             + "; ".join(s.message for s in security_report.blockers)
-                            + " Use configure_server with "
-                            "bypass_security=True to override."
                         ),
                         install_status="blocked_by_security",
                     )
                 )
 
-            # Continue to validation + config write (Step 4+)
+            # HTTP reachability check (non-blocking — 401/403 = OAuth = reachable)
+            http_result = await app.http_reachability.check_reachability(
+                server_name, package_identifier, timeout_seconds=10
+            )
+
+            # Write config to each target client (always — reachability failure is a warning)
             if len(locations) == 1:
-                result = await _configure_single(
-                    server_name,
-                    server_config,
-                    locations[0],
-                    ctx,
-                    app.connection_tester,
-                    app.healing,
+                result = await _configure_http_single(
+                    server_name, server_config, locations[0], ctx, http_result
                 )
             else:
-                result = await _configure_multi(
-                    server_name,
-                    server_config,
-                    locations,
-                    ctx,
-                    app.connection_tester,
-                    app.healing,
+                result = await _configure_http_multi(
+                    server_name, server_config, locations, ctx, http_result
                 )
 
             # Lockfile update for HTTP servers
             if project_path and result.get("success"):
+                lockfile_config = (
+                    server_config
+                    if isinstance(server_config, ServerConfig)
+                    else ServerConfig(command="", args=(), env=dict(server_config.env))
+                )
                 _update_lockfile(
                     project_path=project_path,
                     server_name=server_name,
                     package_identifier=package_identifier,
                     registry_type=registry_type,
                     version=version,
-                    server_config=server_config,
-                    tools=result.get("tools_discovered", []),
+                    server_config=lockfile_config,
+                    tools=[],
                 )
 
             return result
@@ -484,6 +484,125 @@ async def _configure_multi(
     result["per_client_results"] = per_client
     if healing_info:
         result["healing"] = healing_info
+    return result
+
+
+def _all_locations_support_http_native(locations: list[ConfigLocation]) -> bool:
+    """Return True if every target client supports native HTTP server config."""
+    return all(client_supports_http_native(loc.client) for loc in locations)
+
+
+def _build_http_server_config(
+    url: str,
+    env: dict[str, str],
+    locations: list[ConfigLocation],
+    registry_type: str,
+) -> ServerConfig | HttpServerConfig:
+    """Native config for clients that support it; mcp-remote fallback for the rest."""
+    transport_type = "sse" if registry_type == "sse" else "http"
+    if _all_locations_support_http_native(locations):
+        return HttpServerConfig(url=url, transport_type=transport_type, env=env)
+    return ServerConfig(command="npx", args=("-y", "mcp-remote", url), env=env)
+
+
+async def _configure_http_single(
+    server_name: str,
+    server_config: ServerConfig | HttpServerConfig,
+    location: ConfigLocation,
+    ctx: Context,
+    http_result: ConnectionTestResult,
+) -> dict[str, object]:
+    """Configure an HTTP server for a single client. Always writes config."""
+    write_server_config(Path(location.path), server_name, server_config, overwrite_existing=True)
+
+    restart_note = "Restart your MCP client to activate."
+    oauth_note = " On first use you may need to authenticate via browser (OAuth)."
+
+    if http_result.success:
+        msg = (
+            f"Server '{server_name}' configured in {location.client.value} "
+            f"at {location.path}. {restart_note}{oauth_note}"
+        )
+    else:
+        msg = (
+            f"Server '{server_name}' configured in {location.client.value} "
+            f"at {location.path}. {restart_note}{oauth_note} "
+            f"Note: {http_result.error}"
+        )
+
+    return asdict(
+        ConfigureResult(
+            success=True,
+            server_name=server_name,
+            config_file=location.path,
+            message=msg,
+            config_written=server_config.to_dict(),
+            install_status="configured",
+            tools_discovered=[],
+            validation_passed=http_result.success,
+        )
+    )
+
+
+async def _configure_http_multi(
+    server_name: str,
+    server_config: ServerConfig | HttpServerConfig,
+    locations: list[ConfigLocation],
+    ctx: Context,
+    http_result: ConnectionTestResult,
+) -> dict[str, object]:
+    """Configure an HTTP server for multiple clients. Always writes config."""
+    per_client: list[dict[str, object]] = []
+    success_count = 0
+    for loc in locations:
+        try:
+            write_server_config(Path(loc.path), server_name, server_config, overwrite_existing=True)
+            per_client.append(
+                {
+                    "client": loc.client.value,
+                    "scope": loc.scope,
+                    "config_file": loc.path,
+                    "success": True,
+                }
+            )
+            success_count += 1
+        except McpTapError as exc:
+            per_client.append(
+                {
+                    "client": loc.client.value,
+                    "scope": loc.scope,
+                    "config_file": loc.path,
+                    "success": False,
+                    "error": str(exc),
+                }
+            )
+
+    overall = success_count > 0
+    clients_ok = [r["client"] for r in per_client if r["success"]]
+    restart_note = (
+        "Restart your MCP clients to activate. "
+        "On first use you may need to authenticate via browser (OAuth)."
+    )
+    msg = (
+        f"Server '{server_name}' configured in {success_count}/{len(locations)} "
+        f"clients ({', '.join(str(c) for c in clients_ok)}). {restart_note}"
+    )
+    if not http_result.success:
+        msg += f" Note: {http_result.error}"
+
+    result = asdict(
+        ConfigureResult(
+            success=overall,
+            server_name=server_name,
+            config_file=", ".join(str(r["config_file"]) for r in per_client if r["success"]),
+            message=msg,
+            config_written=server_config.to_dict(),
+            install_status="configured",
+            tools_discovered=[],
+            validation_passed=http_result.success,
+        )
+    )
+    result["per_client_results"] = per_client
     return result
 
 
