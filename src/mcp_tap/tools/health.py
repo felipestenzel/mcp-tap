@@ -11,12 +11,13 @@ from mcp.server.fastmcp import Context
 
 from mcp_tap.config.detection import detect_clients, resolve_config_path
 from mcp_tap.config.reader import parse_servers, read_config
-from mcp_tap.connection.base import ConnectionTesterPort
+from mcp_tap.connection.base import ConnectionTesterPort, HttpReachabilityPort
 from mcp_tap.errors import McpTapError
 from mcp_tap.healing.base import HealingOrchestratorPort
 from mcp_tap.models import (
     ConnectionTestResult,
     HealthReport,
+    HttpServerConfig,
     InstalledServer,
     MCPClient,
     ServerHealth,
@@ -94,7 +95,9 @@ async def check_health(
 
         timeout = max(5, min(timeout_seconds, 60))
 
-        server_healths = await _check_all_servers(servers, timeout, app.connection_tester)
+        server_healths = await _check_all_servers(
+            servers, timeout, app.connection_tester, app.http_reachability
+        )
 
         # Attempt healing for unhealthy servers if requested
         healing_details: dict[str, dict[str, object]] = {}
@@ -152,6 +155,7 @@ async def _check_all_servers(
     servers: list[InstalledServer],
     timeout_seconds: int,
     connection_tester: ConnectionTesterPort,
+    http_reachability: HttpReachabilityPort,
 ) -> list[ServerHealth]:
     """Run health checks on all servers concurrently.
 
@@ -163,7 +167,9 @@ async def _check_all_servers(
 
     async def _limited_check(server: InstalledServer) -> ServerHealth:
         async with sem:
-            return await _check_single_server(server, timeout_seconds, connection_tester)
+            return await _check_single_server(
+                server, timeout_seconds, connection_tester, http_reachability
+            )
 
     tasks = [_limited_check(server) for server in servers]
     results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -188,13 +194,19 @@ async def _check_single_server(
     server: InstalledServer,
     timeout_seconds: int,
     connection_tester: ConnectionTesterPort,
+    http_reachability: HttpReachabilityPort,
 ) -> ServerHealth:
     """Check one server and return its ServerHealth."""
-    result = await connection_tester.test_server_connection(
-        server.name,
-        server.config,
-        timeout_seconds=timeout_seconds,
-    )
+    if isinstance(server.config, HttpServerConfig):
+        result = await http_reachability.check_reachability(
+            server.name, server.config.url, timeout_seconds=timeout_seconds
+        )
+    else:
+        result = await connection_tester.test_server_connection(
+            server.name,
+            server.config,
+            timeout_seconds=timeout_seconds,
+        )
 
     if result.success:
         return ServerHealth(

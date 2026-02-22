@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 
 from mcp_tap.errors import ConfigReadError
-from mcp_tap.models import InstalledServer, ServerConfig
+from mcp_tap.models import HttpServerConfig, InstalledServer, ServerConfig
 
 
 def read_config(config_path: Path | str) -> dict[str, object]:
@@ -58,11 +58,20 @@ def parse_servers(
     for name, entry in servers_dict.items():
         if not isinstance(entry, dict):
             continue
-        config = ServerConfig(
-            command=entry.get("command", ""),
-            args=list(entry.get("args", [])),
-            env=dict(entry.get("env", {})),
-        )
+
+        entry_type = str(entry.get("type", "stdio"))
+        if "url" in entry and entry_type in ("http", "sse", "streamable-http"):
+            config: ServerConfig | HttpServerConfig = HttpServerConfig(
+                url=str(entry["url"]),
+                transport_type="sse" if entry_type == "sse" else "http",
+                env=dict(entry.get("env", {})),
+            )
+        else:
+            config = ServerConfig(
+                command=str(entry.get("command", "")),
+                args=list(entry.get("args", [])),
+                env=dict(entry.get("env", {})),
+            )
         result.append(InstalledServer(name=name, config=config, source_file=source_file))
 
     return result

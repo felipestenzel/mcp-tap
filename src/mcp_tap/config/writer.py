@@ -19,7 +19,7 @@ from pathlib import Path
 
 from mcp_tap.config.reader import read_config
 from mcp_tap.errors import ConfigWriteError
-from mcp_tap.models import ServerConfig
+from mcp_tap.models import HttpServerConfig, ServerConfig
 
 _path_locks: dict[str, threading.Lock] = {}
 _path_locks_guard = threading.Lock()
@@ -37,7 +37,7 @@ def _get_path_lock(path: Path) -> threading.Lock:
 def write_server_config(
     config_path: Path | str,
     server_name: str,
-    server_config: ServerConfig,
+    server_config: ServerConfig | HttpServerConfig,
     *,
     overwrite_existing: bool = False,
 ) -> None:
@@ -52,7 +52,7 @@ def write_server_config(
 def _locked_write(
     path: Path,
     server_name: str,
-    server_config: ServerConfig,
+    server_config: ServerConfig | HttpServerConfig,
     *,
     overwrite_existing: bool = False,
 ) -> None:

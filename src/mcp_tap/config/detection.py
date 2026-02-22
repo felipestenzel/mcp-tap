@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 from mcp_tap.errors import ClientNotFoundError
-from mcp_tap.models import ConfigLocation, MCPClient
+from mcp_tap.models import HTTP_NATIVE_CLIENTS, ConfigLocation, MCPClient
 
 # ─── User-scoped config paths ───────────────────────────────────
 
@@ -220,3 +220,8 @@ def _all_project_configs(project_path: str) -> list[ConfigLocation]:
             )
         )
     return locations
+
+
+def client_supports_http_native(client: MCPClient) -> bool:
+    """Return True if the client supports native HTTP server config (type+url format)."""
+    return client in HTTP_NATIVE_CLIENTS

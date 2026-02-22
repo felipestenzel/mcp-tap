@@ -10,7 +10,7 @@ from mcp.server.fastmcp import Context
 from mcp_tap.config.detection import detect_clients, resolve_config_path
 from mcp_tap.config.reader import parse_servers, read_config
 from mcp_tap.errors import McpTapError
-from mcp_tap.models import MCPClient
+from mcp_tap.models import HttpServerConfig, MCPClient
 
 # Key names that indicate secrets (case-insensitive substring match)
 _SECRET_KEY_HINTS: frozenset[str] = frozenset(
@@ -115,16 +115,29 @@ async def list_installed(
         raw = read_config(Path(location.path))
         servers = parse_servers(raw, source_file=location.path)
 
-        return [
-            {
-                "name": s.name,
-                "command": s.config.command,
-                "args": s.config.args,
-                "env": _mask_env(s.config.env),
-                "config_file": s.source_file,
-            }
-            for s in servers
-        ]
+        result: list[dict[str, object]] = []
+        for s in servers:
+            if isinstance(s.config, HttpServerConfig):
+                result.append(
+                    {
+                        "name": s.name,
+                        "type": s.config.transport_type,
+                        "url": s.config.url,
+                        "env": _mask_env(dict(s.config.env)),
+                        "config_file": s.source_file,
+                    }
+                )
+            else:
+                result.append(
+                    {
+                        "name": s.name,
+                        "command": s.config.command,
+                        "args": s.config.args,
+                        "env": _mask_env(s.config.env),
+                        "config_file": s.source_file,
+                    }
+                )
+        return result
     except McpTapError as exc:
         return [{"success": False, "error": str(exc)}]
     except Exception as exc:

@@ -38,6 +38,7 @@ def _make_ctx(
     healing: AsyncMock | None = None,
     installer_resolver: AsyncMock | None = None,
     security_gate: AsyncMock | None = None,
+    http_reachability: AsyncMock | None = None,
 ) -> MagicMock:
     """Build a mock Context with AppContext injected into lifespan_context."""
     app = MagicMock(spec=AppContext)
@@ -45,6 +46,7 @@ def _make_ctx(
     app.healing = healing or _default_healing_mock()
     app.installer_resolver = installer_resolver or AsyncMock()
     app.security_gate = security_gate or AsyncMock()
+    app.http_reachability = http_reachability or AsyncMock()
 
     ctx = MagicMock()
     ctx.request_context.lifespan_context = app
@@ -1126,7 +1128,7 @@ class TestIsHttpTransport:
 
 
 class TestConfigureHttpTransport:
-    """Tests for configuring HTTP transport servers via mcp-remote bridge."""
+    """Tests for configuring HTTP transport servers (native config + mcp-remote fallback)."""
 
     @patch("mcp_tap.tools.configure.write_server_config")
     @patch("mcp_tap.tools.configure.resolve_config_locations")
@@ -1135,20 +1137,19 @@ class TestConfigureHttpTransport:
         mock_locations: MagicMock,
         mock_write: MagicMock,
     ):
-        """Should skip package install for HTTPS URLs and use mcp-remote."""
-        mock_locations.return_value = [_fake_location()]
+        """Should skip package install for HTTPS URLs."""
+        mock_locations.return_value = [_fake_location()]  # Claude Code
 
-        connection_tester = AsyncMock()
-        connection_tester.test_server_connection = AsyncMock(
+        http_reachability = AsyncMock()
+        http_reachability.check_reachability = AsyncMock(
             return_value=_ok_connection_result("vercel")
         )
 
-        # installer_resolver should NOT be called
         installer_resolver = AsyncMock()
         installer_resolver.resolve_installer = AsyncMock()
 
         ctx = _make_ctx(
-            connection_tester=connection_tester,
+            http_reachability=http_reachability,
             installer_resolver=installer_resolver,
         )
         result = await configure_server(
@@ -1160,25 +1161,24 @@ class TestConfigureHttpTransport:
 
         assert result["success"] is True
         assert result["validation_passed"] is True
-        # Installer should NOT have been called
         installer_resolver.resolve_installer.assert_not_awaited()
 
     @patch("mcp_tap.tools.configure.write_server_config")
     @patch("mcp_tap.tools.configure.resolve_config_locations")
-    async def test_http_url_builds_mcp_remote_config(
+    async def test_http_url_builds_native_config_for_claude_code(
         self,
         mock_locations: MagicMock,
         mock_write: MagicMock,
     ):
-        """Should build ServerConfig with npx mcp-remote <url>."""
-        mock_locations.return_value = [_fake_location()]
+        """Should build HttpServerConfig with type/url for Claude Code."""
+        mock_locations.return_value = [_fake_location()]  # Claude Code
 
-        connection_tester = AsyncMock()
-        connection_tester.test_server_connection = AsyncMock(
+        http_reachability = AsyncMock()
+        http_reachability.check_reachability = AsyncMock(
             return_value=_ok_connection_result("vercel")
         )
 
-        ctx = _make_ctx(connection_tester=connection_tester)
+        ctx = _make_ctx(http_reachability=http_reachability)
         result = await configure_server(
             server_name="vercel",
             package_identifier="https://mcp.vercel.com",
@@ -1187,8 +1187,10 @@ class TestConfigureHttpTransport:
         )
 
         config_written = result["config_written"]
-        assert config_written["command"] == "npx"
-        assert config_written["args"] == ["-y", "mcp-remote", "https://mcp.vercel.com"]
+        assert config_written["type"] == "http"
+        assert config_written["url"] == "https://mcp.vercel.com"
+        # Should NOT have command/args (native config, not mcp-remote)
+        assert "command" not in config_written
 
     @patch("mcp_tap.tools.configure.write_server_config")
     @patch("mcp_tap.tools.configure.resolve_config_locations")
@@ -1197,15 +1199,15 @@ class TestConfigureHttpTransport:
         mock_locations: MagicMock,
         mock_write: MagicMock,
     ):
-        """Should include env vars in the mcp-remote config."""
-        mock_locations.return_value = [_fake_location()]
+        """Should include env vars in the native HTTP config."""
+        mock_locations.return_value = [_fake_location()]  # Claude Code
 
-        connection_tester = AsyncMock()
-        connection_tester.test_server_connection = AsyncMock(
+        http_reachability = AsyncMock()
+        http_reachability.check_reachability = AsyncMock(
             return_value=_ok_connection_result("vercel")
         )
 
-        ctx = _make_ctx(connection_tester=connection_tester)
+        ctx = _make_ctx(http_reachability=http_reachability)
         result = await configure_server(
             server_name="vercel",
             package_identifier="https://mcp.vercel.com",
@@ -1227,8 +1229,8 @@ class TestConfigureHttpTransport:
         """Should detect HTTP transport via registry_type='streamable-http'."""
         mock_locations.return_value = [_fake_location()]
 
-        connection_tester = AsyncMock()
-        connection_tester.test_server_connection = AsyncMock(
+        http_reachability = AsyncMock()
+        http_reachability.check_reachability = AsyncMock(
             return_value=_ok_connection_result("remote-srv")
         )
 
@@ -1236,7 +1238,7 @@ class TestConfigureHttpTransport:
         installer_resolver.resolve_installer = AsyncMock()
 
         ctx = _make_ctx(
-            connection_tester=connection_tester,
+            http_reachability=http_reachability,
             installer_resolver=installer_resolver,
         )
         result = await configure_server(
@@ -1252,20 +1254,20 @@ class TestConfigureHttpTransport:
 
     @patch("mcp_tap.tools.configure.write_server_config")
     @patch("mcp_tap.tools.configure.resolve_config_locations")
-    async def test_sse_registry_type_uses_mcp_remote(
+    async def test_sse_registry_type_uses_native_sse_type(
         self,
         mock_locations: MagicMock,
         mock_write: MagicMock,
     ):
-        """Should use mcp-remote for SSE registry type."""
-        mock_locations.return_value = [_fake_location()]
+        """Should use native SSE config type for Claude Code with registry_type='sse'."""
+        mock_locations.return_value = [_fake_location()]  # Claude Code
 
-        connection_tester = AsyncMock()
-        connection_tester.test_server_connection = AsyncMock(
+        http_reachability = AsyncMock()
+        http_reachability.check_reachability = AsyncMock(
             return_value=_ok_connection_result("sse-srv")
         )
 
-        ctx = _make_ctx(connection_tester=connection_tester)
+        ctx = _make_ctx(http_reachability=http_reachability)
         result = await configure_server(
             server_name="sse-srv",
             package_identifier="https://sse.example.com",
@@ -1275,25 +1277,28 @@ class TestConfigureHttpTransport:
         )
 
         config_written = result["config_written"]
-        assert config_written["command"] == "npx"
-        assert config_written["args"] == ["-y", "mcp-remote", "https://sse.example.com"]
+        assert config_written["type"] == "sse"
+        assert config_written["url"] == "https://sse.example.com"
 
     @patch("mcp_tap.tools.configure.write_server_config")
     @patch("mcp_tap.tools.configure.resolve_config_locations")
-    async def test_http_transport_validation_still_runs(
+    async def test_http_transport_reachability_check_runs(
         self,
         mock_locations: MagicMock,
         mock_write: MagicMock,
     ):
-        """Validation should still run for HTTP transport servers."""
+        """Reachability check should run for HTTP transport servers.
+
+        Config is ALWAYS written -- failure is a warning, not a blocker.
+        """
         mock_locations.return_value = [_fake_location()]
 
-        connection_tester = AsyncMock()
-        connection_tester.test_server_connection = AsyncMock(
-            return_value=_failed_connection_result("srv", "Connection refused")
+        http_reachability = AsyncMock()
+        http_reachability.check_reachability = AsyncMock(
+            return_value=_failed_connection_result("srv", "Cannot reach https://mcp.example.com")
         )
 
-        ctx = _make_ctx(connection_tester=connection_tester)
+        ctx = _make_ctx(http_reachability=http_reachability)
         result = await configure_server(
             server_name="srv",
             package_identifier="https://mcp.example.com",
@@ -1301,30 +1306,28 @@ class TestConfigureHttpTransport:
             clients="claude_code",
         )
 
-        assert result["success"] is False
+        # Config is ALWAYS written for HTTP servers
+        assert result["success"] is True
         assert result["validation_passed"] is False
-        # Config should NOT be written when validation fails
-        mock_write.assert_not_called()
+        mock_write.assert_called_once()
 
     @patch("mcp_tap.tools.configure.write_server_config")
     @patch("mcp_tap.tools.configure.resolve_config_locations")
-    async def test_http_transport_multi_client(
+    async def test_http_transport_multi_client_uses_mcp_remote(
         self,
         mock_locations: MagicMock,
         mock_write: MagicMock,
     ):
-        """Should write config to multiple clients for HTTP transport."""
+        """Should use mcp-remote for mixed clients (non-native HTTP support)."""
         mock_locations.return_value = [
             _fake_location(MCPClient.CLAUDE_DESKTOP, "/a"),
             _fake_location(MCPClient.CURSOR, "/b"),
         ]
 
-        connection_tester = AsyncMock()
-        connection_tester.test_server_connection = AsyncMock(
-            return_value=_ok_connection_result("srv")
-        )
+        http_reachability = AsyncMock()
+        http_reachability.check_reachability = AsyncMock(return_value=_ok_connection_result("srv"))
 
-        ctx = _make_ctx(connection_tester=connection_tester)
+        ctx = _make_ctx(http_reachability=http_reachability)
         result = await configure_server(
             server_name="srv",
             package_identifier="https://mcp.example.com",
@@ -1336,6 +1339,10 @@ class TestConfigureHttpTransport:
         assert "per_client_results" in result
         assert len(result["per_client_results"]) == 2
         assert mock_write.call_count == 2
+        # Mixed clients -> mcp-remote fallback
+        config_written = result["config_written"]
+        assert config_written["command"] == "npx"
+        assert config_written["args"] == ["-y", "mcp-remote", "https://mcp.example.com"]
 
     @patch("mcp_tap.tools.configure.write_server_config")
     @patch("mcp_tap.tools.configure.resolve_config_locations")
@@ -1377,20 +1384,18 @@ class TestConfigureHttpTransport:
 
     @patch("mcp_tap.tools.configure.write_server_config")
     @patch("mcp_tap.tools.configure.resolve_config_locations")
-    async def test_http_transport_install_status_is_installed(
+    async def test_http_transport_install_status_is_configured(
         self,
         mock_locations: MagicMock,
         mock_write: MagicMock,
     ):
-        """install_status should reflect 'installed' for HTTP transport on success."""
+        """install_status should be 'configured' for HTTP transport (no install needed)."""
         mock_locations.return_value = [_fake_location()]
 
-        connection_tester = AsyncMock()
-        connection_tester.test_server_connection = AsyncMock(
-            return_value=_ok_connection_result("srv")
-        )
+        http_reachability = AsyncMock()
+        http_reachability.check_reachability = AsyncMock(return_value=_ok_connection_result("srv"))
 
-        ctx = _make_ctx(connection_tester=connection_tester)
+        ctx = _make_ctx(http_reachability=http_reachability)
         result = await configure_server(
             server_name="srv",
             package_identifier="https://mcp.example.com",
@@ -1399,7 +1404,7 @@ class TestConfigureHttpTransport:
         )
 
         assert result["success"] is True
-        assert result["install_status"] == "installed"
+        assert result["install_status"] == "configured"
 
     @patch("mcp_tap.tools.configure._update_lockfile")
     @patch("mcp_tap.tools.configure.write_server_config")
@@ -1413,12 +1418,10 @@ class TestConfigureHttpTransport:
         """Should update lockfile for HTTP transport when project_path is set."""
         mock_locations.return_value = [_fake_location()]
 
-        connection_tester = AsyncMock()
-        connection_tester.test_server_connection = AsyncMock(
-            return_value=_ok_connection_result("srv")
-        )
+        http_reachability = AsyncMock()
+        http_reachability.check_reachability = AsyncMock(return_value=_ok_connection_result("srv"))
 
-        ctx = _make_ctx(connection_tester=connection_tester)
+        ctx = _make_ctx(http_reachability=http_reachability)
         await configure_server(
             server_name="srv",
             package_identifier="https://mcp.example.com",
@@ -1433,3 +1436,314 @@ class TestConfigureHttpTransport:
         assert call_kwargs["server_name"] == "srv"
         assert call_kwargs["package_identifier"] == "https://mcp.example.com"
         assert call_kwargs["registry_type"] == "streamable-http"
+
+
+# ===============================================================
+# HTTP Native Config Tests (new behavior)
+# ===============================================================
+
+
+class TestConfigureHttpNative:
+    """Tests for native HTTP config for Claude Code vs mcp-remote fallback."""
+
+    @patch("mcp_tap.tools.configure.write_server_config")
+    @patch("mcp_tap.tools.configure.resolve_config_locations")
+    async def test_claude_code_gets_native_http_config(
+        self,
+        mock_locations: MagicMock,
+        mock_write: MagicMock,
+    ):
+        """Claude Code should receive native HTTP config (type+url)."""
+        mock_locations.return_value = [_fake_location(MCPClient.CLAUDE_CODE)]
+
+        http_reachability = AsyncMock()
+        http_reachability.check_reachability = AsyncMock(
+            return_value=_ok_connection_result("vercel")
+        )
+
+        ctx = _make_ctx(http_reachability=http_reachability)
+        result = await configure_server(
+            server_name="vercel",
+            package_identifier="https://mcp.vercel.com",
+            ctx=ctx,
+            clients="claude_code",
+        )
+
+        config_written = result["config_written"]
+        assert config_written["type"] == "http"
+        assert config_written["url"] == "https://mcp.vercel.com"
+        assert "command" not in config_written
+
+    @patch("mcp_tap.tools.configure.write_server_config")
+    @patch("mcp_tap.tools.configure.resolve_config_locations")
+    async def test_cursor_gets_mcp_remote_fallback(
+        self,
+        mock_locations: MagicMock,
+        mock_write: MagicMock,
+    ):
+        """Cursor should receive mcp-remote fallback config."""
+        mock_locations.return_value = [_fake_location(MCPClient.CURSOR, "/cursor/mcp.json")]
+
+        http_reachability = AsyncMock()
+        http_reachability.check_reachability = AsyncMock(
+            return_value=_ok_connection_result("vercel")
+        )
+
+        ctx = _make_ctx(http_reachability=http_reachability)
+        result = await configure_server(
+            server_name="vercel",
+            package_identifier="https://mcp.vercel.com",
+            ctx=ctx,
+            clients="cursor",
+        )
+
+        config_written = result["config_written"]
+        assert config_written["command"] == "npx"
+        assert config_written["args"] == ["-y", "mcp-remote", "https://mcp.vercel.com"]
+
+    @patch("mcp_tap.tools.configure.write_server_config")
+    @patch("mcp_tap.tools.configure.resolve_config_locations")
+    async def test_mixed_locations_use_mcp_remote(
+        self,
+        mock_locations: MagicMock,
+        mock_write: MagicMock,
+    ):
+        """Mixed Claude Code + Cursor should fallback to mcp-remote (safe for all)."""
+        mock_locations.return_value = [
+            _fake_location(MCPClient.CLAUDE_CODE, "/claude.json"),
+            _fake_location(MCPClient.CURSOR, "/cursor/mcp.json"),
+        ]
+
+        http_reachability = AsyncMock()
+        http_reachability.check_reachability = AsyncMock(return_value=_ok_connection_result("srv"))
+
+        ctx = _make_ctx(http_reachability=http_reachability)
+        result = await configure_server(
+            server_name="srv",
+            package_identifier="https://mcp.example.com",
+            ctx=ctx,
+            clients="claude_code,cursor",
+        )
+
+        config_written = result["config_written"]
+        # Mixed -> mcp-remote for universal compatibility
+        assert config_written["command"] == "npx"
+        assert "mcp-remote" in config_written["args"]
+
+    @patch("mcp_tap.tools.configure.write_server_config")
+    @patch("mcp_tap.tools.configure.resolve_config_locations")
+    async def test_config_written_even_when_reachability_fails(
+        self,
+        mock_locations: MagicMock,
+        mock_write: MagicMock,
+    ):
+        """Config should ALWAYS be written for HTTP servers, even on reachability failure."""
+        mock_locations.return_value = [_fake_location()]
+
+        http_reachability = AsyncMock()
+        http_reachability.check_reachability = AsyncMock(
+            return_value=_failed_connection_result("srv", "Cannot reach https://down.example.com")
+        )
+
+        ctx = _make_ctx(http_reachability=http_reachability)
+        result = await configure_server(
+            server_name="srv",
+            package_identifier="https://down.example.com",
+            ctx=ctx,
+            clients="claude_code",
+        )
+
+        assert result["success"] is True
+        assert result["validation_passed"] is False
+        mock_write.assert_called_once()
+
+    @patch("mcp_tap.tools.configure.write_server_config")
+    @patch("mcp_tap.tools.configure.resolve_config_locations")
+    async def test_401_counts_as_reachable(
+        self,
+        mock_locations: MagicMock,
+        mock_write: MagicMock,
+    ):
+        """401 (OAuth) should count as reachable -> validation_passed=True."""
+        mock_locations.return_value = [_fake_location()]
+
+        http_reachability = AsyncMock()
+        http_reachability.check_reachability = AsyncMock(
+            return_value=ConnectionTestResult(
+                success=True, server_name="oauth-srv", tools_discovered=[]
+            )
+        )
+
+        ctx = _make_ctx(http_reachability=http_reachability)
+        result = await configure_server(
+            server_name="oauth-srv",
+            package_identifier="https://oauth.example.com",
+            ctx=ctx,
+            clients="claude_code",
+        )
+
+        assert result["success"] is True
+        assert result["validation_passed"] is True
+
+    @patch("mcp_tap.tools.configure.write_server_config")
+    @patch("mcp_tap.tools.configure.resolve_config_locations")
+    async def test_message_mentions_restart_and_oauth(
+        self,
+        mock_locations: MagicMock,
+        mock_write: MagicMock,
+    ):
+        """HTTP server message should mention Restart and OAuth."""
+        mock_locations.return_value = [_fake_location()]
+
+        http_reachability = AsyncMock()
+        http_reachability.check_reachability = AsyncMock(return_value=_ok_connection_result("srv"))
+
+        ctx = _make_ctx(http_reachability=http_reachability)
+        result = await configure_server(
+            server_name="srv",
+            package_identifier="https://mcp.example.com",
+            ctx=ctx,
+            clients="claude_code",
+        )
+
+        assert "Restart" in result["message"]
+        assert "OAuth" in result["message"]
+
+    @patch("mcp_tap.tools.configure.write_server_config")
+    @patch("mcp_tap.tools.configure.resolve_config_locations")
+    async def test_sse_registry_type_produces_sse_type(
+        self,
+        mock_locations: MagicMock,
+        mock_write: MagicMock,
+    ):
+        """registry_type='sse' should produce type='sse' in native config."""
+        mock_locations.return_value = [_fake_location()]
+
+        http_reachability = AsyncMock()
+        http_reachability.check_reachability = AsyncMock(
+            return_value=_ok_connection_result("sse-srv")
+        )
+
+        ctx = _make_ctx(http_reachability=http_reachability)
+        result = await configure_server(
+            server_name="sse-srv",
+            package_identifier="https://sse.example.com",
+            ctx=ctx,
+            clients="claude_code",
+            registry_type="sse",
+        )
+
+        config_written = result["config_written"]
+        assert config_written["type"] == "sse"
+
+    @patch("mcp_tap.tools.configure.write_server_config")
+    @patch("mcp_tap.tools.configure.resolve_config_locations")
+    async def test_connection_tester_not_called_for_http(
+        self,
+        mock_locations: MagicMock,
+        mock_write: MagicMock,
+    ):
+        """connection_tester.test_server_connection should NOT be called for HTTP."""
+        mock_locations.return_value = [_fake_location()]
+
+        connection_tester = AsyncMock()
+        connection_tester.test_server_connection = AsyncMock()
+
+        http_reachability = AsyncMock()
+        http_reachability.check_reachability = AsyncMock(return_value=_ok_connection_result("srv"))
+
+        ctx = _make_ctx(
+            connection_tester=connection_tester,
+            http_reachability=http_reachability,
+        )
+        await configure_server(
+            server_name="srv",
+            package_identifier="https://mcp.example.com",
+            ctx=ctx,
+            clients="claude_code",
+        )
+
+        connection_tester.test_server_connection.assert_not_awaited()
+        http_reachability.check_reachability.assert_awaited_once()
+
+    @patch("mcp_tap.tools.configure.write_server_config")
+    @patch("mcp_tap.tools.configure.resolve_config_locations")
+    async def test_http_security_gate_still_runs(
+        self,
+        mock_locations: MagicMock,
+        mock_write: MagicMock,
+    ):
+        """Security gate should still run for HTTP servers even with native config."""
+        from mcp_tap.models import SecurityReport, SecurityRisk
+
+        mock_locations.return_value = [_fake_location()]
+
+        security_gate = AsyncMock()
+        security_gate.run_security_gate = AsyncMock(
+            return_value=SecurityReport(overall_risk=SecurityRisk.PASS, signals=[])
+        )
+
+        http_reachability = AsyncMock()
+        http_reachability.check_reachability = AsyncMock(return_value=_ok_connection_result("srv"))
+
+        ctx = _make_ctx(security_gate=security_gate, http_reachability=http_reachability)
+        result = await configure_server(
+            server_name="srv",
+            package_identifier="https://mcp.example.com",
+            ctx=ctx,
+            clients="claude_code",
+        )
+
+        assert result["success"] is True
+        security_gate.run_security_gate.assert_awaited_once()
+
+    @patch("mcp_tap.tools.configure.write_server_config")
+    @patch("mcp_tap.tools.configure.resolve_config_locations")
+    async def test_http_install_status_is_configured(
+        self,
+        mock_locations: MagicMock,
+        mock_write: MagicMock,
+    ):
+        """install_status should be 'configured' for all HTTP servers."""
+        mock_locations.return_value = [_fake_location()]
+
+        http_reachability = AsyncMock()
+        http_reachability.check_reachability = AsyncMock(return_value=_ok_connection_result("srv"))
+
+        ctx = _make_ctx(http_reachability=http_reachability)
+        result = await configure_server(
+            server_name="srv",
+            package_identifier="https://mcp.example.com",
+            ctx=ctx,
+            clients="claude_code",
+        )
+
+        assert result["install_status"] == "configured"
+
+    @patch("mcp_tap.tools.configure.write_server_config")
+    @patch("mcp_tap.tools.configure.resolve_config_locations")
+    async def test_http_multi_claude_code_only_gets_native(
+        self,
+        mock_locations: MagicMock,
+        mock_write: MagicMock,
+    ):
+        """Multiple Claude Code locations should all get native HTTP config."""
+        mock_locations.return_value = [
+            _fake_location(MCPClient.CLAUDE_CODE, "/a"),
+            _fake_location(MCPClient.CLAUDE_CODE, "/b"),
+        ]
+
+        http_reachability = AsyncMock()
+        http_reachability.check_reachability = AsyncMock(return_value=_ok_connection_result("srv"))
+
+        ctx = _make_ctx(http_reachability=http_reachability)
+        result = await configure_server(
+            server_name="srv",
+            package_identifier="https://mcp.example.com",
+            ctx=ctx,
+            clients="claude_code,claude_code",
+        )
+
+        config_written = result["config_written"]
+        assert config_written["type"] == "http"
+        assert config_written["url"] == "https://mcp.example.com"

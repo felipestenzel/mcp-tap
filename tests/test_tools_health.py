@@ -9,6 +9,7 @@ from mcp_tap.errors import McpTapError
 from mcp_tap.models import (
     ConfigLocation,
     ConnectionTestResult,
+    HttpServerConfig,
     InstalledServer,
     MCPClient,
     ServerConfig,
@@ -23,6 +24,7 @@ from mcp_tap.tools.health import _check_all_servers, _check_single_server, check
 def _make_ctx(
     connection_tester: MagicMock | None = None,
     healing: MagicMock | None = None,
+    http_reachability: MagicMock | None = None,
 ) -> MagicMock:
     """Build a mock Context with AppContext containing injected adapters."""
     app = MagicMock(spec=AppContext)
@@ -32,6 +34,9 @@ def _make_ctx(
     app.healing = healing or MagicMock()
     if healing is None:
         app.healing.heal_and_retry = AsyncMock()
+    app.http_reachability = http_reachability or MagicMock()
+    if http_reachability is None:
+        app.http_reachability.check_reachability = AsyncMock()
     ctx = MagicMock()
     ctx.request_context.lifespan_context = app
     ctx.info = AsyncMock()
@@ -372,7 +377,12 @@ class TestHealthConcurrent:
             ]
         )
 
-        results = await _check_all_servers(servers, timeout_seconds=15, connection_tester=tester)
+        results = await _check_all_servers(
+            servers,
+            timeout_seconds=15,
+            connection_tester=tester,
+            http_reachability=AsyncMock(),
+        )
 
         assert len(results) == 3
         assert tester.test_server_connection.call_count == 3
@@ -423,7 +433,12 @@ class TestCheckAllServersExceptionHandling:
             ]
         )
 
-        results = await _check_all_servers(servers, timeout_seconds=15, connection_tester=tester)
+        results = await _check_all_servers(
+            servers,
+            timeout_seconds=15,
+            connection_tester=tester,
+            http_reachability=AsyncMock(),
+        )
 
         assert len(results) == 2
         assert results[0].status == "healthy"
@@ -444,7 +459,12 @@ class TestCheckSingleServer:
             return_value=_ok_connection("pg-mcp", tools=["read_query"])
         )
 
-        result = await _check_single_server(server, timeout_seconds=15, connection_tester=tester)
+        result = await _check_single_server(
+            server,
+            timeout_seconds=15,
+            connection_tester=tester,
+            http_reachability=AsyncMock(),
+        )
 
         assert isinstance(result, ServerHealth)
         assert result.status == "healthy"
@@ -458,7 +478,12 @@ class TestCheckSingleServer:
             return_value=_failed_connection("broken-mcp", error="Command not found: npx")
         )
 
-        result = await _check_single_server(server, timeout_seconds=15, connection_tester=tester)
+        result = await _check_single_server(
+            server,
+            timeout_seconds=15,
+            connection_tester=tester,
+            http_reachability=AsyncMock(),
+        )
 
         assert result.status == "unhealthy"
         assert "Command not found" in result.error
@@ -468,7 +493,12 @@ class TestCheckSingleServer:
         server = _installed_server("slow-mcp")
         tester = _mock_connection_tester(return_value=_timeout_connection("slow-mcp"))
 
-        result = await _check_single_server(server, timeout_seconds=15, connection_tester=tester)
+        result = await _check_single_server(
+            server,
+            timeout_seconds=15,
+            connection_tester=tester,
+            http_reachability=AsyncMock(),
+        )
 
         assert result.status == "timeout"
 
@@ -597,7 +627,12 @@ class TestHealthSemaphoreConcurrency:
         tester.test_server_connection = AsyncMock(side_effect=_track_concurrency)
 
         servers = [_installed_server(f"server-{i}") for i in range(10)]
-        results = await _check_all_servers(servers, timeout_seconds=15, connection_tester=tester)
+        results = await _check_all_servers(
+            servers,
+            timeout_seconds=15,
+            connection_tester=tester,
+            http_reachability=AsyncMock(),
+        )
 
         assert len(results) == 10
         assert max_concurrent <= 5
@@ -610,7 +645,12 @@ class TestHealthSemaphoreConcurrency:
             side_effect=[_ok_connection(f"server-{i}") for i in range(8)]
         )
 
-        results = await _check_all_servers(servers, timeout_seconds=15, connection_tester=tester)
+        results = await _check_all_servers(
+            servers,
+            timeout_seconds=15,
+            connection_tester=tester,
+            http_reachability=AsyncMock(),
+        )
 
         assert len(results) == 8
         assert all(r.status == "healthy" for r in results)
@@ -630,7 +670,137 @@ class TestHealthSemaphoreConcurrency:
             ]
         )
 
-        results = await _check_all_servers(servers, timeout_seconds=15, connection_tester=tester)
+        results = await _check_all_servers(
+            servers,
+            timeout_seconds=15,
+            connection_tester=tester,
+            http_reachability=AsyncMock(),
+        )
 
         assert len(results) == 7
         assert tester.test_server_connection.call_count == 7
+
+
+# === HTTP Server Awareness Tests =============================================
+
+
+def _http_installed_server(
+    name: str = "vercel",
+    url: str = "https://mcp.vercel.com",
+) -> InstalledServer:
+    return InstalledServer(
+        name=name,
+        config=HttpServerConfig(url=url, transport_type="http"),
+        source_file="/tmp/fake_config.json",
+    )
+
+
+class TestHealthHttpServerAwareness:
+    """Tests for check_health / _check_single_server routing HTTP vs stdio."""
+
+    async def test_http_server_uses_reachability_checker(self):
+        """HttpServerConfig should use http_reachability, not connection_tester."""
+        server = _http_installed_server("vercel")
+
+        tester = _mock_connection_tester()
+        http_reachability = MagicMock()
+        http_reachability.check_reachability = AsyncMock(return_value=_ok_connection("vercel"))
+
+        result = await _check_single_server(
+            server,
+            timeout_seconds=15,
+            connection_tester=tester,
+            http_reachability=http_reachability,
+        )
+
+        assert result.status == "healthy"
+        http_reachability.check_reachability.assert_awaited_once_with(
+            "vercel", "https://mcp.vercel.com", timeout_seconds=15
+        )
+        # connection_tester should NOT have been called
+        tester.test_server_connection.assert_not_awaited()
+
+    async def test_stdio_server_uses_connection_tester(self):
+        """ServerConfig should use connection_tester, not http_reachability."""
+        server = _installed_server("pg-mcp")
+
+        tester = _mock_connection_tester(return_value=_ok_connection("pg-mcp"))
+        http_reachability = MagicMock()
+        http_reachability.check_reachability = AsyncMock()
+
+        result = await _check_single_server(
+            server,
+            timeout_seconds=15,
+            connection_tester=tester,
+            http_reachability=http_reachability,
+        )
+
+        assert result.status == "healthy"
+        tester.test_server_connection.assert_awaited_once()
+        http_reachability.check_reachability.assert_not_awaited()
+
+    async def test_http_server_unhealthy_result(self):
+        """HttpServerConfig with failed reachability should be unhealthy."""
+        server = _http_installed_server("broken")
+
+        tester = _mock_connection_tester()
+        http_reachability = MagicMock()
+        http_reachability.check_reachability = AsyncMock(
+            return_value=_failed_connection("broken", "Cannot reach https://broken.example.com")
+        )
+
+        result = await _check_single_server(
+            server,
+            timeout_seconds=15,
+            connection_tester=tester,
+            http_reachability=http_reachability,
+        )
+
+        assert result.status == "unhealthy"
+        assert "Cannot reach" in result.error
+
+    async def test_mixed_http_and_stdio_in_check_all(self):
+        """_check_all_servers should route HTTP and stdio servers correctly."""
+        servers = [
+            _installed_server("pg-mcp"),
+            _http_installed_server("vercel"),
+        ]
+
+        tester = _mock_connection_tester(return_value=_ok_connection("pg-mcp"))
+        http_reachability = MagicMock()
+        http_reachability.check_reachability = AsyncMock(return_value=_ok_connection("vercel"))
+
+        results = await _check_all_servers(
+            servers,
+            timeout_seconds=15,
+            connection_tester=tester,
+            http_reachability=http_reachability,
+        )
+
+        assert len(results) == 2
+        assert all(r.status == "healthy" for r in results)
+        tester.test_server_connection.assert_awaited_once()
+        http_reachability.check_reachability.assert_awaited_once()
+
+    @patch("mcp_tap.tools.health.parse_servers")
+    @patch("mcp_tap.tools.health.read_config", return_value={"mcpServers": {}})
+    @patch("mcp_tap.tools.health.detect_clients")
+    async def test_check_health_passes_http_reachability(
+        self,
+        mock_detect: MagicMock,
+        _mock_read: MagicMock,
+        mock_parse: MagicMock,
+    ):
+        """check_health should pass http_reachability from AppContext."""
+        mock_detect.return_value = [_fake_location()]
+        mock_parse.return_value = [_http_installed_server("vercel")]
+
+        http_reachability = MagicMock()
+        http_reachability.check_reachability = AsyncMock(return_value=_ok_connection("vercel"))
+
+        ctx = _make_ctx(http_reachability=http_reachability)
+        result = await check_health(ctx)
+
+        assert result["total"] == 1
+        assert result["healthy"] == 1
+        http_reachability.check_reachability.assert_awaited_once()

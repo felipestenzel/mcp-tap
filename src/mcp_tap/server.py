@@ -11,8 +11,8 @@ import httpx
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 
-from mcp_tap.connection.base import ConnectionTesterPort
-from mcp_tap.connection.tester import DefaultConnectionTester
+from mcp_tap.connection.base import ConnectionTesterPort, HttpReachabilityPort
+from mcp_tap.connection.tester import DefaultConnectionTester, HttpReachabilityChecker
 from mcp_tap.evaluation.base import GitHubMetadataPort
 from mcp_tap.evaluation.github import DefaultGitHubMetadata
 from mcp_tap.healing.base import HealingOrchestratorPort
@@ -53,6 +53,7 @@ class AppContext:
     registry: RegistryClientPort
     github_metadata: GitHubMetadataPort
     connection_tester: ConnectionTesterPort
+    http_reachability: HttpReachabilityPort
     healing: HealingOrchestratorPort
     security_gate: SecurityGatePort
     readme_fetcher: ReadmeFetcherPort
@@ -78,6 +79,7 @@ async def app_lifespan(server: FastMCP) -> AsyncIterator[AppContext]:
         readme_fetcher = DefaultReadmeFetcher(http_client)
         security_gate = DefaultSecurityGate(http_client)
         connection_tester = DefaultConnectionTester()
+        http_reachability = HttpReachabilityChecker(http_client)
         healing = DefaultHealingOrchestrator(connection_tester)
         installer_resolver = DefaultInstallerResolver()
 
@@ -86,6 +88,7 @@ async def app_lifespan(server: FastMCP) -> AsyncIterator[AppContext]:
             registry=registry,
             github_metadata=github_metadata,
             connection_tester=connection_tester,
+            http_reachability=http_reachability,
             healing=healing,
             security_gate=security_gate,
             readme_fetcher=readme_fetcher,

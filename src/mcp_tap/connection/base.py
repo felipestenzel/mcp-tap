@@ -19,3 +19,15 @@ class ConnectionTesterPort(Protocol):
     ) -> ConnectionTestResult:
         """Spawn an MCP server, connect via stdio, and call list_tools()."""
         ...
+
+
+class HttpReachabilityPort(Protocol):
+    """Port for checking HTTP MCP server reachability without spawning a process."""
+
+    async def check_reachability(
+        self,
+        server_name: str,
+        url: str,
+        *,
+        timeout_seconds: int = 10,
+    ) -> ConnectionTestResult: ...
