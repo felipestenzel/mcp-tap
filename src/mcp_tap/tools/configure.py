@@ -27,6 +27,20 @@ from mcp_tap.tools._helpers import get_context
 
 logger = logging.getLogger(__name__)
 
+_HTTP_REGISTRY_TYPES = frozenset({"streamable-http", "http", "sse"})
+
+
+def _is_http_transport(package_identifier: str, registry_type: str) -> bool:
+    """Detect whether the server uses HTTP transport (remote, no install needed).
+
+    Returns True when the package_identifier is a URL or the registry_type
+    indicates a remote transport protocol.
+    """
+    return (
+        package_identifier.startswith(("https://", "http://"))
+        or registry_type in _HTTP_REGISTRY_TYPES
+    )
+
 
 async def configure_server(
     server_name: str,
@@ -46,6 +60,11 @@ async def configure_server(
     2. Validates by spawning the server and calling list_tools()
     3. Writes the server entry to your MCP client config file(s) only if validation passes
 
+    For HTTP transport servers (streamable-http, SSE), the install step is
+    skipped and the server is configured via the ``mcp-remote`` bridge.
+    Pass the server URL as ``package_identifier`` (e.g. ``https://mcp.vercel.com``)
+    or set ``registry_type`` to ``"streamable-http"``, ``"http"``, or ``"sse"``.
+
     Get the package_identifier and registry_type from search_servers results
     or scan_project recommendations.
 
@@ -57,11 +76,13 @@ async def configure_server(
             This is how it appears in list_installed and other tools.
         package_identifier: The package to install and run. Get this from
             search_servers results (e.g. "@modelcontextprotocol/server-postgres"
-            for npm, "mcp-server-git" for pypi).
+            for npm, "mcp-server-git" for pypi), or a URL for HTTP transport
+            servers (e.g. "https://mcp.vercel.com").
         clients: Target MCP client(s). Comma-separated names like
             "claude_desktop,cursor", "all" for every detected client,
             or empty to auto-detect the first available.
-        registry_type: Package source — "npm" (default), "pypi", or "oci".
+        registry_type: Package source — "npm" (default), "pypi", "oci",
+            "streamable-http", "http", or "sse".
         version: Package version. Defaults to "latest".
         env_vars: Environment variables the server needs, as comma-separated
             KEY=VALUE pairs (e.g. "POSTGRES_URL=postgresql://...,API_KEY=sk-...").
@@ -93,7 +114,82 @@ async def configure_server(
                 )
             )
 
-        # Step 2: Resolve installer and install the package (once)
+        # Step 2: For HTTP transport servers, skip install and use mcp-remote bridge
+        if _is_http_transport(package_identifier, registry_type):
+            logger.info(
+                "HTTP transport detected for %s — using mcp-remote bridge",
+                package_identifier,
+            )
+            await ctx.info("HTTP server detected — configuring via mcp-remote bridge...")
+
+            env = _parse_env_vars(env_vars)
+            server_config = ServerConfig(
+                command="npx",
+                args=["-y", "mcp-remote", package_identifier],
+                env=env,
+            )
+
+            # Security gate still runs for HTTP servers
+            security_report = await _run_security_check(
+                package_identifier=package_identifier,
+                repository_url="",
+                command=server_config.command,
+                args=list(server_config.args),
+                ctx=ctx,
+                security_gate=app.security_gate,
+            )
+            if security_report and not security_report.passed:
+                return asdict(
+                    ConfigureResult(
+                        success=False,
+                        server_name=server_name,
+                        config_file="",
+                        message=(
+                            f"Security gate BLOCKED installation of "
+                            f"'{server_name}': "
+                            + "; ".join(s.message for s in security_report.blockers)
+                            + " Use configure_server with "
+                            "bypass_security=True to override."
+                        ),
+                        install_status="blocked_by_security",
+                    )
+                )
+
+            # Continue to validation + config write (Step 4+)
+            if len(locations) == 1:
+                result = await _configure_single(
+                    server_name,
+                    server_config,
+                    locations[0],
+                    ctx,
+                    app.connection_tester,
+                    app.healing,
+                )
+            else:
+                result = await _configure_multi(
+                    server_name,
+                    server_config,
+                    locations,
+                    ctx,
+                    app.connection_tester,
+                    app.healing,
+                )
+
+            # Lockfile update for HTTP servers
+            if project_path and result.get("success"):
+                _update_lockfile(
+                    project_path=project_path,
+                    server_name=server_name,
+                    package_identifier=package_identifier,
+                    registry_type=registry_type,
+                    version=version,
+                    server_config=server_config,
+                    tools=result.get("tools_discovered", []),
+                )
+
+            return result
+
+        # Step 2b: Resolve installer and install the package (once)
         rt = RegistryType(registry_type)
         installer = await app.installer_resolver.resolve_installer(rt)
 
