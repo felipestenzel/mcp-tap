@@ -14,7 +14,7 @@ from mcp_tap.models import (
     ServerConfig,
 )
 from mcp_tap.server import AppContext
-from mcp_tap.tools.configure import _parse_env_vars, configure_server
+from mcp_tap.tools.configure import _is_http_transport, _parse_env_vars, configure_server
 
 # ─── Helpers ─────────────────────────────────────────────────
 
@@ -1081,3 +1081,355 @@ class TestConfigureTransactionalWrite:
 
         assert result["success"] is False
         mock_write.assert_not_called()
+
+
+# ═══════════════════════════════════════════════════════════════
+# HTTP Transport Detection Tests
+# ═══════════════════════════════════════════════════════════════
+
+
+class TestIsHttpTransport:
+    """Tests for the _is_http_transport helper function."""
+
+    def test_https_url_detected(self):
+        assert _is_http_transport("https://mcp.vercel.com", "npm") is True
+
+    def test_http_url_detected(self):
+        assert _is_http_transport("http://localhost:3000/mcp", "npm") is True
+
+    def test_streamable_http_registry_type(self):
+        assert _is_http_transport("some-package", "streamable-http") is True
+
+    def test_http_registry_type(self):
+        assert _is_http_transport("some-package", "http") is True
+
+    def test_sse_registry_type(self):
+        assert _is_http_transport("some-package", "sse") is True
+
+    def test_npm_package_not_detected(self):
+        assert _is_http_transport("@modelcontextprotocol/server-postgres", "npm") is False
+
+    def test_pypi_package_not_detected(self):
+        assert _is_http_transport("mcp-server-git", "pypi") is False
+
+    def test_url_with_path_detected(self):
+        assert _is_http_transport("https://mcp.example.com/v1/sse", "npm") is True
+
+    def test_url_takes_priority_over_registry_type(self):
+        """URL detection should work even with registry_type='npm'."""
+        assert _is_http_transport("https://mcp.vercel.com", "npm") is True
+
+
+# ═══════════════════════════════════════════════════════════════
+# HTTP Transport Configure Tests
+# ═══════════════════════════════════════════════════════════════
+
+
+class TestConfigureHttpTransport:
+    """Tests for configuring HTTP transport servers via mcp-remote bridge."""
+
+    @patch("mcp_tap.tools.configure.write_server_config")
+    @patch("mcp_tap.tools.configure.resolve_config_locations")
+    async def test_http_url_skips_install(
+        self,
+        mock_locations: MagicMock,
+        mock_write: MagicMock,
+    ):
+        """Should skip package install for HTTPS URLs and use mcp-remote."""
+        mock_locations.return_value = [_fake_location()]
+
+        connection_tester = AsyncMock()
+        connection_tester.test_server_connection = AsyncMock(
+            return_value=_ok_connection_result("vercel")
+        )
+
+        # installer_resolver should NOT be called
+        installer_resolver = AsyncMock()
+        installer_resolver.resolve_installer = AsyncMock()
+
+        ctx = _make_ctx(
+            connection_tester=connection_tester,
+            installer_resolver=installer_resolver,
+        )
+        result = await configure_server(
+            server_name="vercel",
+            package_identifier="https://mcp.vercel.com",
+            ctx=ctx,
+            clients="claude_code",
+        )
+
+        assert result["success"] is True
+        assert result["validation_passed"] is True
+        # Installer should NOT have been called
+        installer_resolver.resolve_installer.assert_not_awaited()
+
+    @patch("mcp_tap.tools.configure.write_server_config")
+    @patch("mcp_tap.tools.configure.resolve_config_locations")
+    async def test_http_url_builds_mcp_remote_config(
+        self,
+        mock_locations: MagicMock,
+        mock_write: MagicMock,
+    ):
+        """Should build ServerConfig with npx mcp-remote <url>."""
+        mock_locations.return_value = [_fake_location()]
+
+        connection_tester = AsyncMock()
+        connection_tester.test_server_connection = AsyncMock(
+            return_value=_ok_connection_result("vercel")
+        )
+
+        ctx = _make_ctx(connection_tester=connection_tester)
+        result = await configure_server(
+            server_name="vercel",
+            package_identifier="https://mcp.vercel.com",
+            ctx=ctx,
+            clients="claude_code",
+        )
+
+        config_written = result["config_written"]
+        assert config_written["command"] == "npx"
+        assert config_written["args"] == ["-y", "mcp-remote", "https://mcp.vercel.com"]
+
+    @patch("mcp_tap.tools.configure.write_server_config")
+    @patch("mcp_tap.tools.configure.resolve_config_locations")
+    async def test_http_url_with_env_vars(
+        self,
+        mock_locations: MagicMock,
+        mock_write: MagicMock,
+    ):
+        """Should include env vars in the mcp-remote config."""
+        mock_locations.return_value = [_fake_location()]
+
+        connection_tester = AsyncMock()
+        connection_tester.test_server_connection = AsyncMock(
+            return_value=_ok_connection_result("vercel")
+        )
+
+        ctx = _make_ctx(connection_tester=connection_tester)
+        result = await configure_server(
+            server_name="vercel",
+            package_identifier="https://mcp.vercel.com",
+            ctx=ctx,
+            clients="claude_code",
+            env_vars="API_KEY=sk-123",
+        )
+
+        config_written = result["config_written"]
+        assert config_written["env"] == {"API_KEY": "sk-123"}
+
+    @patch("mcp_tap.tools.configure.write_server_config")
+    @patch("mcp_tap.tools.configure.resolve_config_locations")
+    async def test_streamable_http_registry_type_skips_install(
+        self,
+        mock_locations: MagicMock,
+        mock_write: MagicMock,
+    ):
+        """Should detect HTTP transport via registry_type='streamable-http'."""
+        mock_locations.return_value = [_fake_location()]
+
+        connection_tester = AsyncMock()
+        connection_tester.test_server_connection = AsyncMock(
+            return_value=_ok_connection_result("remote-srv")
+        )
+
+        installer_resolver = AsyncMock()
+        installer_resolver.resolve_installer = AsyncMock()
+
+        ctx = _make_ctx(
+            connection_tester=connection_tester,
+            installer_resolver=installer_resolver,
+        )
+        result = await configure_server(
+            server_name="remote-srv",
+            package_identifier="https://remote.example.com/mcp",
+            ctx=ctx,
+            clients="claude_code",
+            registry_type="streamable-http",
+        )
+
+        assert result["success"] is True
+        installer_resolver.resolve_installer.assert_not_awaited()
+
+    @patch("mcp_tap.tools.configure.write_server_config")
+    @patch("mcp_tap.tools.configure.resolve_config_locations")
+    async def test_sse_registry_type_uses_mcp_remote(
+        self,
+        mock_locations: MagicMock,
+        mock_write: MagicMock,
+    ):
+        """Should use mcp-remote for SSE registry type."""
+        mock_locations.return_value = [_fake_location()]
+
+        connection_tester = AsyncMock()
+        connection_tester.test_server_connection = AsyncMock(
+            return_value=_ok_connection_result("sse-srv")
+        )
+
+        ctx = _make_ctx(connection_tester=connection_tester)
+        result = await configure_server(
+            server_name="sse-srv",
+            package_identifier="https://sse.example.com",
+            ctx=ctx,
+            clients="claude_code",
+            registry_type="sse",
+        )
+
+        config_written = result["config_written"]
+        assert config_written["command"] == "npx"
+        assert config_written["args"] == ["-y", "mcp-remote", "https://sse.example.com"]
+
+    @patch("mcp_tap.tools.configure.write_server_config")
+    @patch("mcp_tap.tools.configure.resolve_config_locations")
+    async def test_http_transport_validation_still_runs(
+        self,
+        mock_locations: MagicMock,
+        mock_write: MagicMock,
+    ):
+        """Validation should still run for HTTP transport servers."""
+        mock_locations.return_value = [_fake_location()]
+
+        connection_tester = AsyncMock()
+        connection_tester.test_server_connection = AsyncMock(
+            return_value=_failed_connection_result("srv", "Connection refused")
+        )
+
+        ctx = _make_ctx(connection_tester=connection_tester)
+        result = await configure_server(
+            server_name="srv",
+            package_identifier="https://mcp.example.com",
+            ctx=ctx,
+            clients="claude_code",
+        )
+
+        assert result["success"] is False
+        assert result["validation_passed"] is False
+        # Config should NOT be written when validation fails
+        mock_write.assert_not_called()
+
+    @patch("mcp_tap.tools.configure.write_server_config")
+    @patch("mcp_tap.tools.configure.resolve_config_locations")
+    async def test_http_transport_multi_client(
+        self,
+        mock_locations: MagicMock,
+        mock_write: MagicMock,
+    ):
+        """Should write config to multiple clients for HTTP transport."""
+        mock_locations.return_value = [
+            _fake_location(MCPClient.CLAUDE_DESKTOP, "/a"),
+            _fake_location(MCPClient.CURSOR, "/b"),
+        ]
+
+        connection_tester = AsyncMock()
+        connection_tester.test_server_connection = AsyncMock(
+            return_value=_ok_connection_result("srv")
+        )
+
+        ctx = _make_ctx(connection_tester=connection_tester)
+        result = await configure_server(
+            server_name="srv",
+            package_identifier="https://mcp.example.com",
+            ctx=ctx,
+            clients="claude_desktop,cursor",
+        )
+
+        assert result["success"] is True
+        assert "per_client_results" in result
+        assert len(result["per_client_results"]) == 2
+        assert mock_write.call_count == 2
+
+    @patch("mcp_tap.tools.configure.write_server_config")
+    @patch("mcp_tap.tools.configure.resolve_config_locations")
+    async def test_http_transport_security_gate_runs(
+        self,
+        mock_locations: MagicMock,
+        mock_write: MagicMock,
+    ):
+        """Security gate should still run for HTTP transport servers."""
+        from mcp_tap.models import SecurityReport, SecurityRisk, SecuritySignal
+
+        mock_locations.return_value = [_fake_location()]
+
+        security_gate = AsyncMock()
+        security_gate.run_security_gate = AsyncMock(
+            return_value=SecurityReport(
+                overall_risk=SecurityRisk.BLOCK,
+                signals=[
+                    SecuritySignal(
+                        category="command",
+                        risk=SecurityRisk.BLOCK,
+                        message="Suspicious command",
+                    )
+                ],
+            )
+        )
+
+        ctx = _make_ctx(security_gate=security_gate)
+        result = await configure_server(
+            server_name="suspicious",
+            package_identifier="https://evil.example.com",
+            ctx=ctx,
+            clients="claude_code",
+        )
+
+        assert result["success"] is False
+        assert result["install_status"] == "blocked_by_security"
+        security_gate.run_security_gate.assert_awaited_once()
+
+    @patch("mcp_tap.tools.configure.write_server_config")
+    @patch("mcp_tap.tools.configure.resolve_config_locations")
+    async def test_http_transport_install_status_is_installed(
+        self,
+        mock_locations: MagicMock,
+        mock_write: MagicMock,
+    ):
+        """install_status should reflect 'installed' for HTTP transport on success."""
+        mock_locations.return_value = [_fake_location()]
+
+        connection_tester = AsyncMock()
+        connection_tester.test_server_connection = AsyncMock(
+            return_value=_ok_connection_result("srv")
+        )
+
+        ctx = _make_ctx(connection_tester=connection_tester)
+        result = await configure_server(
+            server_name="srv",
+            package_identifier="https://mcp.example.com",
+            ctx=ctx,
+            clients="claude_code",
+        )
+
+        assert result["success"] is True
+        assert result["install_status"] == "installed"
+
+    @patch("mcp_tap.tools.configure._update_lockfile")
+    @patch("mcp_tap.tools.configure.write_server_config")
+    @patch("mcp_tap.tools.configure.resolve_config_locations")
+    async def test_http_transport_updates_lockfile(
+        self,
+        mock_locations: MagicMock,
+        mock_write: MagicMock,
+        mock_lockfile: MagicMock,
+    ):
+        """Should update lockfile for HTTP transport when project_path is set."""
+        mock_locations.return_value = [_fake_location()]
+
+        connection_tester = AsyncMock()
+        connection_tester.test_server_connection = AsyncMock(
+            return_value=_ok_connection_result("srv")
+        )
+
+        ctx = _make_ctx(connection_tester=connection_tester)
+        await configure_server(
+            server_name="srv",
+            package_identifier="https://mcp.example.com",
+            ctx=ctx,
+            clients="claude_code",
+            project_path="/my/project",
+            registry_type="streamable-http",
+        )
+
+        mock_lockfile.assert_called_once()
+        call_kwargs = mock_lockfile.call_args[1]
+        assert call_kwargs["server_name"] == "srv"
+        assert call_kwargs["package_identifier"] == "https://mcp.example.com"
+        assert call_kwargs["registry_type"] == "streamable-http"
