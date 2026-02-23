@@ -7,11 +7,15 @@ from mcp_tap.models import (
     DriftEntry,
     DriftSeverity,
     DriftType,
+    HttpServerConfig,
     InstalledServer,
     LockedServer,
     Lockfile,
     ServerHealth,
 )
+
+_HTTP_URL_PREFIXES = ("https://", "http://")
+_HTTP_REGISTRY_TYPES = frozenset({"streamable-http", "http", "sse"})
 
 
 def diff_lockfile(
@@ -78,10 +82,27 @@ def _check_config_drift(
 ) -> list[DriftEntry]:
     """Check if command/args have drifted from locked config."""
     drift: list[DriftEntry] = []
+    if _is_locked_http_server(locked):
+        locked_url = _extract_locked_http_url(locked)
+        installed_url = _extract_installed_http_url(installed)
+        if locked_url and installed_url and locked_url == installed_url:
+            return []
+        drift.append(
+            DriftEntry(
+                server=name,
+                drift_type=DriftType.CONFIG_CHANGED,
+                detail=(
+                    f"Locked HTTP URL: {locked_url or '<missing>'} | "
+                    f"Installed HTTP URL: {installed_url or '<missing>'}"
+                ),
+                severity=DriftSeverity.WARNING,
+            )
+        )
+        return drift
+
     locked_cmd = locked.config.command
     locked_args = list(locked.config.args)
-    installed_cmd = installed.config.command
-    installed_args = list(installed.config.args)
+    installed_cmd, installed_args = _installed_config_fields(installed)
 
     if locked_cmd != installed_cmd or locked_args != installed_args:
         drift.append(
@@ -96,6 +117,44 @@ def _check_config_drift(
             )
         )
     return drift
+
+
+def _is_locked_http_server(locked: LockedServer) -> bool:
+    """Return True when a lockfile entry represents an HTTP/SSE server."""
+    return (
+        locked.package_identifier.startswith(_HTTP_URL_PREFIXES)
+        or locked.registry_type in _HTTP_REGISTRY_TYPES
+        or _extract_http_url(locked.config.args) is not None
+    )
+
+
+def _extract_locked_http_url(locked: LockedServer) -> str | None:
+    """Extract canonical URL from a locked HTTP entry."""
+    if locked.package_identifier.startswith(_HTTP_URL_PREFIXES):
+        return locked.package_identifier
+    return _extract_http_url(locked.config.args)
+
+
+def _extract_installed_http_url(installed: InstalledServer) -> str | None:
+    """Extract configured URL for installed HTTP or mcp-remote entry."""
+    if isinstance(installed.config, HttpServerConfig):
+        return installed.config.url
+    return _extract_http_url(installed.config.args)
+
+
+def _installed_config_fields(installed: InstalledServer) -> tuple[str, list[str]]:
+    """Return installed config as command/args tuple for drift detail messages."""
+    if isinstance(installed.config, HttpServerConfig):
+        return installed.config.transport_type, [installed.config.url]
+    return installed.config.command, list(installed.config.args)
+
+
+def _extract_http_url(args: list[str]) -> str | None:
+    """Return first HTTP URL token from args, if any."""
+    for arg in args:
+        if arg.startswith(_HTTP_URL_PREFIXES):
+            return arg
+    return None
 
 
 def _check_tools_drift(
