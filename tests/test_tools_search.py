@@ -52,6 +52,7 @@ def _make_registry_server(
     description: str,
     identifier: str = "test-pkg",
     registry_type: RegistryType = RegistryType.NPM,
+    transport: Transport = Transport.STDIO,
     is_official: bool = False,
 ) -> RegistryServer:
     return RegistryServer(
@@ -64,7 +65,7 @@ def _make_registry_server(
                 registry_type=registry_type,
                 identifier=identifier,
                 version="1.0.0",
-                transport=Transport.STDIO,
+                transport=transport,
                 environment_variables=[],
             ),
         ],
@@ -395,6 +396,28 @@ class TestSearchResultStructure:
         assert r["repository_url"] == "https://github.com/test/server"
         # Only required env vars
         assert r["env_vars_required"] == ["API_KEY"]
+
+    async def test_remote_url_uses_transport_as_registry_type(self):
+        """Should serialize URL-based remotes as streamable-http/sse instead of npm."""
+        ctx = _make_ctx()
+        ctx.request_context.lifespan_context.registry.search = AsyncMock(
+            return_value=[
+                _make_registry_server(
+                    name="com.vercel/vercel-mcp",
+                    description="Vercel MCP",
+                    identifier="https://mcp.vercel.com",
+                    registry_type=RegistryType.NPM,
+                    transport=Transport.STREAMABLE_HTTP,
+                    is_official=True,
+                )
+            ]
+        )
+
+        results = await search_servers("vercel", ctx)
+
+        assert len(results) == 1
+        assert results[0]["transport"] == "streamable-http"
+        assert results[0]["registry_type"] == "streamable-http"
 
 
 # ===================================================================

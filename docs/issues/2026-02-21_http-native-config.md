@@ -1,8 +1,8 @@
 # Native HTTP server config support (streamable-http, SSE)
 
 - **Date**: 2026-02-21
-- **Status**: `in_progress`
-- **Branch**: `feature/2026-02-21-streamable-http-support`
+- **Status**: `done`
+- **Branch**: `main` (merged from `feature/2026-02-21-streamable-http-support`)
 - **Priority**: `high`
 
 ## Problem
@@ -44,11 +44,14 @@ No HTTP-specific validation. mcp-remote is unreliable for OAuth-gated servers.
 
 ## Verification
 
-- [ ] `pytest tests/` — all tests pass
-- [ ] `ruff check src/ tests/ && ruff format --check src/ tests/` — clean
-- [ ] Claude Code + Vercel MCP URL → native `{"type":"http","url":"..."}` written to config
-- [ ] Cursor + URL → mcp-remote fallback
-- [ ] 401 response → success=True (reachable), validation_passed=True
-- [ ] Unreachable server → success=True (config written), validation_passed=False, message mentions OAuth + restart
-- [ ] `list_installed` shows `url` instead of `command` for HTTP servers
-- [ ] `check_health` uses reachability check for HTTP servers
+- [x] `pytest tests/` — all tests pass
+- [x] `ruff check src/ tests/ && ruff format --check src/ tests/` — clean
+- [x] Claude Code + Vercel MCP URL → native `{"type":"http","url":"..."}` written to config
+- [x] Cursor + URL → mcp-remote fallback
+- [x] 401 response → success=True (reachable), validation_passed=True
+- [x] Unreachable server → success=True (config written), validation_passed=False, message mentions OAuth + restart
+- [x] `list_installed` shows `url` instead of `command` for HTTP servers
+- [x] `check_health` uses reachability check for HTTP servers
+
+Manual validation reference:
+- Real run in `stz_profile` confirmed native HTTP config write for Vercel MCP and no `npm install` on URL.

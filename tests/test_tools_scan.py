@@ -5,7 +5,15 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from mcp_tap.models import ConfigLocation, MCPClient
+from mcp_tap.models import (
+    ConfigLocation,
+    HttpServerConfig,
+    InstalledServer,
+    MCPClient,
+    ProjectProfile,
+    RegistryType,
+    ServerRecommendation,
+)
 from mcp_tap.tools.scan import (
     _build_project_context,
     _build_summary,
@@ -138,7 +146,14 @@ class TestScanReturnsRecommendations:
 
         for rec in result["recommendations"]:
             assert isinstance(rec["registry_type"], str)
-            assert rec["registry_type"] in ("npm", "pypi", "oci")
+            assert rec["registry_type"] in (
+                "npm",
+                "pypi",
+                "oci",
+                "streamable-http",
+                "http",
+                "sse",
+            )
 
 
 class TestScanReturnsEnvVars:
@@ -218,6 +233,43 @@ class TestScanMarksAlreadyInstalled:
         result = await scan_project(ctx, path=str(PYTHON_FASTAPI))
 
         assert result["already_installed"] == []
+
+    @patch("mcp_tap.tools.scan._scan_project")
+    @patch("mcp_tap.tools.scan._get_installed_servers")
+    @patch("mcp_tap.tools.scan._get_installed_server_names", return_value=set())
+    async def test_marks_http_server_installed_by_url_even_with_different_alias(
+        self,
+        _mock_installed_names: MagicMock,
+        mock_installed_servers: MagicMock,
+        mock_scan: AsyncMock,
+    ):
+        """Should detect installed remote servers by URL, not only by server name."""
+        mock_scan.return_value = ProjectProfile(
+            path="/tmp/project",
+            recommendations=[
+                ServerRecommendation(
+                    server_name="com-vercel-vercel-mcp",
+                    package_identifier="https://mcp.vercel.com",
+                    registry_type=RegistryType.NPM,
+                    reason="Remote MCP",
+                    priority="low",
+                )
+            ],
+        )
+        mock_installed_servers.return_value = [
+            InstalledServer(
+                name="vercel",
+                config=HttpServerConfig(url="https://mcp.vercel.com", transport_type="http"),
+                source_file="/tmp/.claude.json",
+            )
+        ]
+
+        ctx = _make_ctx()
+        result = await scan_project(ctx, path="/tmp/project")
+
+        assert result["recommendations"][0]["already_installed"] is True
+        assert result["recommendations"][0]["registry_type"] == "streamable-http"
+        assert result["already_installed"] == ["com-vercel-vercel-mcp"]
 
 
 class TestScanEmptyProject:

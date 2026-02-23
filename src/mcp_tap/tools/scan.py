@@ -10,7 +10,13 @@ from mcp.server.fastmcp import Context
 from mcp_tap.config.detection import detect_clients, resolve_config_path
 from mcp_tap.config.reader import parse_servers, read_config
 from mcp_tap.errors import McpTapError
-from mcp_tap.models import MCPClient
+from mcp_tap.models import (
+    HttpServerConfig,
+    InstalledServer,
+    MCPClient,
+    RegistryType,
+    ServerRecommendation,
+)
 from mcp_tap.scanner.archetypes import detect_archetypes
 from mcp_tap.scanner.credentials import map_credentials
 from mcp_tap.scanner.detector import scan_project as _scan_project
@@ -59,18 +65,28 @@ async def scan_project(
 
         profile = await _scan_project(path, client=resolved_client, registry=registry)
         installed_names = _get_installed_server_names(client)
+        installed_servers: list[InstalledServer] | None = None
 
         # Cross-reference recommendations with installed servers
         already_installed: list[str] = []
         recommendations: list[dict[str, object]] = []
         for rec in profile.recommendations:
-            is_installed = rec.server_name in installed_names
+            if rec.server_name in installed_names:
+                is_installed = True
+            else:
+                if installed_servers is None:
+                    installed_servers = _get_installed_servers(client)
+                is_installed = _is_recommendation_installed(
+                    rec,
+                    installed_names,
+                    installed_servers,
+                )
             if is_installed:
                 already_installed.append(rec.server_name)
             recommendations.append(
                 {
                     **asdict(rec),
-                    "registry_type": rec.registry_type.value,
+                    "registry_type": _serialize_registry_type(rec),
                     "source": rec.source.value,
                     "already_installed": is_installed,
                 }
@@ -187,19 +203,62 @@ def _get_installed_server_names(client: str | None) -> set[str]:
     so that the scan still returns useful results.
     """
     try:
+        servers = _get_installed_servers(client)
+        return {s.name for s in servers}
+    except Exception:
+        return set()
+
+
+def _get_installed_servers(client: str | None) -> list[InstalledServer]:
+    """Read installed server entries from client config (graceful fallback)."""
+    try:
         if client:
             location = resolve_config_path(MCPClient(client))
         else:
             clients = detect_clients()
             if not clients:
-                return set()
+                return []
             location = clients[0]
 
         raw = read_config(Path(location.path))
-        servers = parse_servers(raw, source_file=location.path)
-        return {s.name for s in servers}
+        return parse_servers(raw, source_file=location.path)
     except Exception:
-        return set()
+        return []
+
+
+def _is_recommendation_installed(
+    rec: ServerRecommendation,
+    installed_names: set[str],
+    installed_servers: list[InstalledServer],
+) -> bool:
+    """Check if a recommendation is already installed by name or equivalent config."""
+    if rec.server_name in installed_names:
+        return True
+
+    pkg_id = rec.package_identifier.strip()
+    if not pkg_id:
+        return False
+
+    for installed in installed_servers:
+        cfg = installed.config
+        if isinstance(cfg, HttpServerConfig):
+            if cfg.url == pkg_id:
+                return True
+            continue
+
+        if cfg.command == pkg_id or pkg_id in cfg.args:
+            return True
+
+    return False
+
+
+def _serialize_registry_type(rec: ServerRecommendation) -> str:
+    """Return output registry_type with HTTP transport hints for URL-based recommendations."""
+    if rec.package_identifier.startswith(("https://", "http://")) and rec.registry_type == (
+        RegistryType.NPM
+    ):
+        return "streamable-http"
+    return rec.registry_type.value
 
 
 def _build_project_context(
