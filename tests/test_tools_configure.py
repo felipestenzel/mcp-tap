@@ -1503,12 +1503,12 @@ class TestConfigureHttpNative:
 
     @patch("mcp_tap.tools.configure.write_server_config")
     @patch("mcp_tap.tools.configure.resolve_config_locations")
-    async def test_mixed_locations_use_mcp_remote(
+    async def test_mixed_locations_use_per_client_best_config(
         self,
         mock_locations: MagicMock,
         mock_write: MagicMock,
     ):
-        """Mixed Claude Code + Cursor should fallback to mcp-remote (safe for all)."""
+        """Mixed Claude Code + Cursor: native HTTP for Claude Code, mcp-remote for Cursor."""
         mock_locations.return_value = [
             _fake_location(MCPClient.CLAUDE_CODE, "/claude.json"),
             _fake_location(MCPClient.CURSOR, "/cursor/mcp.json"),
@@ -1525,10 +1525,24 @@ class TestConfigureHttpNative:
             clients="claude_code,cursor",
         )
 
-        config_written = result["config_written"]
-        # Mixed -> mcp-remote for universal compatibility
-        assert config_written["command"] == "npx"
-        assert "mcp-remote" in config_written["args"]
+        assert result["success"] is True
+        per_client = result["per_client_results"]
+        assert len(per_client) == 2
+
+        # Claude Code gets native HTTP config
+        cc = next(r for r in per_client if r["client"] == "claude_code")
+        assert cc["success"] is True
+        assert cc["config_written"].get("url") == "https://mcp.example.com"
+        assert "command" not in cc["config_written"]
+
+        # Cursor gets mcp-remote fallback
+        cursor = next(r for r in per_client if r["client"] == "cursor")
+        assert cursor["success"] is True
+        assert cursor["config_written"].get("command") == "npx"
+        assert "mcp-remote" in cursor["config_written"].get("args", [])
+
+        # Top-level config_written is the first successful client's (Claude Code = native)
+        assert result["config_written"].get("url") == "https://mcp.example.com"
 
     @patch("mcp_tap.tools.configure.write_server_config")
     @patch("mcp_tap.tools.configure.resolve_config_locations")

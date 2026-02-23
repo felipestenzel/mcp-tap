@@ -121,22 +121,13 @@ async def configure_server(
             await ctx.info("HTTP server detected — checking reachability...")
 
             env = _parse_env_vars(env_vars)
-            server_config: ServerConfig | HttpServerConfig = _build_http_server_config(
-                url=package_identifier,
-                env=env,
-                locations=locations,
-                registry_type=registry_type,
-            )
 
-            # Security gate (command="" for native config — gate passes empty commands)
-            is_native = isinstance(server_config, HttpServerConfig)
-            sec_command = "" if is_native else server_config.command
-            sec_args: list[str] = [] if is_native else list(server_config.args)
+            # Security gate: URL checked via package_identifier; command is not user-supplied
             security_report = await _run_security_check(
                 package_identifier=package_identifier,
                 repository_url="",
-                command=sec_command,
-                args=sec_args,
+                command="",
+                args=[],
                 ctx=ctx,
                 security_gate=app.security_gate,
             )
@@ -160,30 +151,31 @@ async def configure_server(
                 server_name, package_identifier, timeout_seconds=10
             )
 
-            # Write config to each target client (always — reachability failure is a warning)
+            # Write per-client config: native HTTP for capable clients, mcp-remote for others
             if len(locations) == 1:
                 result = await _configure_http_single(
-                    server_name, server_config, locations[0], ctx, http_result
+                    server_name,
+                    package_identifier,
+                    env,
+                    locations[0],
+                    registry_type,
+                    ctx,
+                    http_result,
                 )
             else:
                 result = await _configure_http_multi(
-                    server_name, server_config, locations, ctx, http_result
+                    server_name, package_identifier, env, locations, registry_type, ctx, http_result
                 )
 
-            # Lockfile update for HTTP servers
+            # Lockfile update: store canonical HTTP form regardless of per-client format
             if project_path and result.get("success"):
-                lockfile_config = (
-                    server_config
-                    if isinstance(server_config, ServerConfig)
-                    else ServerConfig(command="", args=(), env=dict(server_config.env))
-                )
                 _update_lockfile(
                     project_path=project_path,
                     server_name=server_name,
                     package_identifier=package_identifier,
                     registry_type=registry_type,
                     version=version,
-                    server_config=lockfile_config,
+                    server_config=ServerConfig(command="", args=(), env=env),
                     tools=[],
                 )
 
@@ -487,32 +479,34 @@ async def _configure_multi(
     return result
 
 
-def _all_locations_support_http_native(locations: list[ConfigLocation]) -> bool:
-    """Return True if every target client supports native HTTP server config."""
-    return all(client_supports_http_native(loc.client) for loc in locations)
-
-
-def _build_http_server_config(
+def _build_http_server_config_for_location(
     url: str,
     env: dict[str, str],
-    locations: list[ConfigLocation],
+    location: ConfigLocation,
     registry_type: str,
 ) -> ServerConfig | HttpServerConfig:
-    """Native config for clients that support it; mcp-remote fallback for the rest."""
+    """Build the best HTTP config for a single client location.
+
+    Clients that support native HTTP config (e.g. Claude Code) get ``HttpServerConfig``.
+    All others get a ``ServerConfig`` using the ``mcp-remote`` bridge.
+    """
     transport_type = "sse" if registry_type == "sse" else "http"
-    if _all_locations_support_http_native(locations):
+    if client_supports_http_native(location.client):
         return HttpServerConfig(url=url, transport_type=transport_type, env=env)
     return ServerConfig(command="npx", args=("-y", "mcp-remote", url), env=env)
 
 
 async def _configure_http_single(
     server_name: str,
-    server_config: ServerConfig | HttpServerConfig,
+    url: str,
+    env: dict[str, str],
     location: ConfigLocation,
+    registry_type: str,
     ctx: Context,
     http_result: ConnectionTestResult,
 ) -> dict[str, object]:
     """Configure an HTTP server for a single client. Always writes config."""
+    server_config = _build_http_server_config_for_location(url, env, location, registry_type)
     write_server_config(Path(location.path), server_name, server_config, overwrite_existing=True)
 
     restart_note = "Restart your MCP client to activate."
@@ -546,15 +540,23 @@ async def _configure_http_single(
 
 async def _configure_http_multi(
     server_name: str,
-    server_config: ServerConfig | HttpServerConfig,
+    url: str,
+    env: dict[str, str],
     locations: list[ConfigLocation],
+    registry_type: str,
     ctx: Context,
     http_result: ConnectionTestResult,
 ) -> dict[str, object]:
-    """Configure an HTTP server for multiple clients. Always writes config."""
+    """Configure an HTTP server for multiple clients with per-client best config.
+
+    Clients that support native HTTP config receive ``HttpServerConfig``.
+    All others receive a ``ServerConfig`` using the ``mcp-remote`` bridge.
+    Both config types are written in the same call.
+    """
     per_client: list[dict[str, object]] = []
     success_count = 0
     for loc in locations:
+        server_config = _build_http_server_config_for_location(url, env, loc, registry_type)
         try:
             write_server_config(Path(loc.path), server_name, server_config, overwrite_existing=True)
             per_client.append(
@@ -563,6 +565,7 @@ async def _configure_http_multi(
                     "scope": loc.scope,
                     "config_file": loc.path,
                     "success": True,
+                    "config_written": server_config.to_dict(),
                 }
             )
             success_count += 1
@@ -590,13 +593,16 @@ async def _configure_http_multi(
     if not http_result.success:
         msg += f" Note: {http_result.error}"
 
+    # Top-level config_written: first successful client's config as representative
+    first_written = next((r["config_written"] for r in per_client if r.get("success")), {})
+
     result = asdict(
         ConfigureResult(
             success=overall,
             server_name=server_name,
             config_file=", ".join(str(r["config_file"]) for r in per_client if r["success"]),
             message=msg,
-            config_written=server_config.to_dict(),
+            config_written=first_written,
             install_status="configured",
             tools_discovered=[],
             validation_passed=http_result.success,
