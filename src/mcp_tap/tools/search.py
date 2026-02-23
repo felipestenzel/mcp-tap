@@ -73,14 +73,19 @@ async def search_servers(
         results: list[dict[str, object]] = []
         for server in servers:
             for pkg in server.packages:
+                transport = pkg.transport.value
                 result: dict[str, object] = asdict(
                     SearchResult(
                         name=server.name,
                         description=server.description,
                         version=server.version,
-                        registry_type=pkg.registry_type.value,
+                        registry_type=_serialize_registry_type(
+                            package_identifier=pkg.identifier,
+                            registry_type=pkg.registry_type,
+                            transport=transport,
+                        ),
                         package_identifier=pkg.identifier,
-                        transport=pkg.transport.value,
+                        transport=transport,
                         is_official=server.is_official,
                         updated_at=server.updated_at,
                         env_vars_required=[
@@ -118,6 +123,21 @@ async def search_servers(
     except Exception as exc:
         await ctx.error(f"Unexpected error in search_servers: {exc}")
         return [{"success": False, "error": f"Internal error: {type(exc).__name__}"}]
+
+
+def _serialize_registry_type(
+    *,
+    package_identifier: str,
+    registry_type: RegistryType,
+    transport: str,
+) -> str:
+    """Return output registry_type, preserving remote transport semantics for URL servers."""
+    if package_identifier.startswith(("https://", "http://")) and transport in (
+        "streamable-http",
+        "sse",
+    ):
+        return transport
+    return registry_type.value
 
 
 def _apply_project_scoring(

@@ -235,7 +235,7 @@ async def configure_server(
                     message=(
                         f"Security gate BLOCKED installation of '{server_name}': "
                         + "; ".join(s.message for s in security_report.blockers)
-                        + " Use configure_server with bypass_security=True to override."
+                        + " Review the package and choose a trusted alternative."
                     ),
                     install_status="blocked_by_security",
                 )

@@ -524,7 +524,7 @@ class TestConfigureSecurityGateIntegration:
         assert result["success"] is False
         assert result["install_status"] == "blocked_by_security"
         assert "Security gate BLOCKED" in result["message"]
-        assert "bypass_security" in result["message"]
+        assert "trusted alternative" in result["message"]
         # Config should NOT be written
         mock_write.assert_not_called()
         # test_server_connection should NOT be called (blocked before validation)
