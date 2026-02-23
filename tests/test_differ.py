@@ -10,6 +10,7 @@ from mcp_tap.models import (
     DriftEntry,
     DriftSeverity,
     DriftType,
+    HttpServerConfig,
     InstalledServer,
     LockedConfig,
     LockedServer,
@@ -62,6 +63,19 @@ def _installed(
     return InstalledServer(
         name=name,
         config=ServerConfig(command=command, args=args),
+        source_file="/tmp/config.json",
+    )
+
+
+def _installed_http(
+    name: str,
+    url: str,
+    transport_type: str = "http",
+) -> InstalledServer:
+    """Build an InstalledServer with native HTTP config."""
+    return InstalledServer(
+        name=name,
+        config=HttpServerConfig(url=url, transport_type=transport_type),
         source_file="/tmp/config.json",
     )
 
@@ -233,6 +247,40 @@ class TestNoDrift:
         result = diff_lockfile(lockfile, installed)
         assert result == []
 
+    def test_http_lockfile_matches_mcp_remote_by_url(self) -> None:
+        """Should treat lockfile HTTP + mcp-remote URL as equivalent."""
+        url = "https://mcp.vercel.com"
+        lockfile = Lockfile(
+            servers={
+                "vercel": _locked_server(
+                    command="",
+                    args=[url],
+                    pkg=url,
+                )
+            },
+        )
+        installed = [_installed("vercel", command="npx", args=["-y", "mcp-remote", url])]
+
+        result = diff_lockfile(lockfile, installed)
+        assert result == []
+
+    def test_http_lockfile_matches_native_http_by_url(self) -> None:
+        """Should treat lockfile HTTP + native HTTP URL as equivalent."""
+        url = "https://mcp.vercel.com"
+        lockfile = Lockfile(
+            servers={
+                "vercel": _locked_server(
+                    command="",
+                    args=[url],
+                    pkg=url,
+                )
+            },
+        )
+        installed = [_installed_http("vercel", url=url)]
+
+        result = diff_lockfile(lockfile, installed)
+        assert result == []
+
 
 # === diff_lockfile: CONFIG_CHANGED drift ====================================
 
@@ -311,6 +359,28 @@ class TestConfigChangedDrift:
         # Still only one CONFIG_CHANGED entry (not two)
         config_drifts = [e for e in result if e.drift_type == DriftType.CONFIG_CHANGED]
         assert len(config_drifts) == 1
+
+    def test_http_url_changed(self) -> None:
+        """Should report CONFIG_CHANGED when HTTP URL differs."""
+        locked_url = "https://mcp.vercel.com"
+        installed_url = "https://mcp.datadog.com"
+        lockfile = Lockfile(
+            servers={
+                "remote": _locked_server(
+                    command="",
+                    args=[locked_url],
+                    pkg=locked_url,
+                )
+            },
+        )
+        installed = [_installed("remote", command="npx", args=["-y", "mcp-remote", installed_url])]
+
+        result = diff_lockfile(lockfile, installed)
+
+        assert len(result) == 1
+        assert result[0].drift_type == DriftType.CONFIG_CHANGED
+        assert locked_url in result[0].detail
+        assert installed_url in result[0].detail
 
 
 # === diff_lockfile: TOOLS_CHANGED drift =====================================
@@ -651,6 +721,39 @@ class TestCheckConfigDrift:
         assert "Installed config:" in detail
         assert "npx" in detail
         assert "uvx" in detail
+
+    def test_http_lockfile_with_empty_args_uses_package_identifier(self) -> None:
+        """Should match HTTP server by package_identifier when lockfile args are empty."""
+        url = "https://mcp.vercel.com"
+        locked = _locked_server(command="", args=[], pkg=url)
+        installed = _installed("svr", command="npx", args=["-y", "mcp-remote", url])
+
+        result = _check_config_drift("svr", locked, installed)
+        assert result == []
+
+    def test_http_native_config_matches_url(self) -> None:
+        """Should match native HttpServerConfig when URL is unchanged."""
+        url = "https://mcp.vercel.com"
+        locked = _locked_server(command="", args=[url], pkg=url)
+        installed = _installed_http("svr", url=url)
+
+        result = _check_config_drift("svr", locked, installed)
+        assert result == []
+
+    def test_http_url_mismatch_returns_drift(self) -> None:
+        """Should report drift when HTTP URL differs between lockfile and installed."""
+        locked = _locked_server(
+            command="", args=["https://mcp.vercel.com"], pkg="https://mcp.vercel.com"
+        )
+        installed = _installed(
+            "svr", command="npx", args=["-y", "mcp-remote", "https://mcp.other.com"]
+        )
+
+        result = _check_config_drift("svr", locked, installed)
+
+        assert len(result) == 1
+        assert result[0].drift_type == DriftType.CONFIG_CHANGED
+        assert "Locked HTTP URL" in result[0].detail
 
 
 # === _check_tools_drift: Unit tests ========================================
