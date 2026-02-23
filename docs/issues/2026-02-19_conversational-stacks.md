@@ -1,7 +1,7 @@
 # I3 — Conversational Stacks (.mcp-tap.yaml)
 
 - **Date**: 2026-02-19
-- **Status**: `in_progress`
+- **Status**: `done`
 - **Branch**: `feature/2026-02-19-conversational-stacks`
 - **Priority**: `high`
 
@@ -23,12 +23,15 @@ YAML-based stack format + `apply_stack` tool + 3 built-in stacks.
 
 ## Files Changed
 
-(Fill after implementation)
+- `src/mcp_tap/stacks/loader.py` — parser e carregamento de stacks
+- `src/mcp_tap/tools/stack.py` — `apply_stack`
+- `src/mcp_tap/stacks/presets/*.yaml` — stacks built-in
+- `tests/test_stacks.py` — cobertura de parsing e aplicação
 
 ## Verification
 
-- [ ] Tests pass: `pytest tests/`
-- [ ] Linter passes: `ruff check src/ tests/`
-- [ ] apply_stack installs from built-in stack names
-- [ ] apply_stack installs from custom YAML file path
-- [ ] 3 built-in stacks: data-science, web-dev, devops
+- [x] Tests pass: `pytest tests/`
+- [x] Linter passes: `ruff check src/ tests/`
+- [x] apply_stack installs from built-in stack names
+- [x] apply_stack installs from custom YAML file path
+- [x] 3 built-in stacks: data-science, web-dev, devops

@@ -1,7 +1,7 @@
 # Streamable-HTTP server support in configure_server
 
 - **Date**: 2026-02-21
-- **Status**: `in_progress`
+- **Status**: `done`
 - **Branch**: `feature/2026-02-21-streamable-http-support`
 - **Priority**: `high`
 
@@ -42,13 +42,14 @@ This keeps the blast radius minimal and fully transparent to the user.
 
 ## Files Changed
 
-- `src/mcp_tap/tools/configure.py` — add `_is_http_transport()` + HTTP fast-path before install
-- `tests/test_configure_http.py` — new test file for HTTP transport path
+- `src/mcp_tap/tools/configure.py` — `_is_http_transport()` + HTTP path
+- `src/mcp_tap/tools/configure.py` — evolução posterior para HTTP nativo por cliente
+- `tests/test_tools_configure.py` — cobertura HTTP/streamable-http/SSE
 
 ## Verification
 
-- [ ] `pytest tests/` — all tests pass
-- [ ] `ruff check src/ tests/ && ruff format --check src/ tests/` — clean
-- [ ] `configure_server("vercel", "https://mcp.vercel.com", registry_type="npm")` → installs via mcp-remote
-- [ ] `configure_server("vercel", "https://mcp.vercel.com", registry_type="streamable-http")` → same
-- [ ] Normal npm server → unchanged behavior
+- [x] `pytest tests/` — all tests pass
+- [x] `ruff check src/ tests/ && ruff format --check src/ tests/` — clean
+- [x] `configure_server("vercel", "https://mcp.vercel.com", registry_type="npm")` funciona
+- [x] `configure_server(..., registry_type="streamable-http")` funciona
+- [x] Normal npm server — comportamento preservado

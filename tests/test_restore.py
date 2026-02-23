@@ -8,6 +8,8 @@ from mcp_tap.errors import InstallerNotFoundError, LockfileReadError, McpTapErro
 from mcp_tap.models import (
     ConfigLocation,
     ConnectionTestResult,
+    HttpServerConfig,
+    InstalledServer,
     InstallResult,
     LockedConfig,
     LockedServer,
@@ -111,6 +113,8 @@ def _mock_installer(
 _P_READ_LOCKFILE = "mcp_tap.tools.restore.read_lockfile"
 _P_RESOLVE_LOCATIONS = "mcp_tap.tools.restore.resolve_config_locations"
 _P_WRITE_CONFIG = "mcp_tap.tools.restore.write_server_config"
+_P_READ_CONFIG = "mcp_tap.tools.restore.read_config"
+_P_PARSE_SERVERS = "mcp_tap.tools.restore.parse_servers"
 
 
 # === No lockfile found ======================================================
@@ -524,6 +528,102 @@ class TestSuccessfulRestore:
         # Check the ServerConfig passed to write_server_config
         _, _, server_config, *_ = mock_write.call_args.args
         assert server_config.env == {}
+
+
+class TestAlreadyInstalledSkip:
+    """Tests for canonical identity detection before reinstall in restore."""
+
+    @patch(_P_WRITE_CONFIG)
+    @patch(_P_PARSE_SERVERS)
+    @patch(_P_READ_CONFIG, return_value={"mcpServers": {}})
+    @patch(_P_RESOLVE_LOCATIONS)
+    @patch(_P_READ_LOCKFILE)
+    async def test_skips_reinstall_when_package_exists_with_alias(
+        self,
+        mock_read_lockfile: MagicMock,
+        mock_resolve: MagicMock,
+        _mock_read_config: MagicMock,
+        mock_parse_servers: MagicMock,
+        mock_write: MagicMock,
+    ) -> None:
+        """Should skip reinstall when canonical package is already installed under another name."""
+        locked = _locked_server(
+            package_identifier="@mcp/server-postgres",
+            command="npx",
+            args=["-y", "@mcp/server-postgres"],
+        )
+        mock_read_lockfile.return_value = _lockfile_with_servers(postgres_mcp=locked)
+        mock_resolve.return_value = [_fake_location(path="/tmp/client.json")]
+        mock_parse_servers.return_value = [
+            InstalledServer(
+                name="pg",
+                config=ServerConfig(command="npx", args=["-y", "@mcp/server-postgres"]),
+                source_file="/tmp/client.json",
+            )
+        ]
+
+        installer_resolver = AsyncMock()
+        connection_tester = AsyncMock()
+        ctx = _make_ctx(
+            installer_resolver=installer_resolver,
+            connection_tester=connection_tester,
+        )
+
+        result = await restore("/my/project", ctx)
+
+        assert result["success"] is True
+        server = result["servers"][0]
+        assert server["status"] == "already_installed"
+        assert server["installed_as"] == "pg"
+        installer_resolver.resolve_installer.assert_not_awaited()
+        connection_tester.test_server_connection.assert_not_awaited()
+        mock_write.assert_not_called()
+
+    @patch(_P_WRITE_CONFIG)
+    @patch(_P_PARSE_SERVERS)
+    @patch(_P_READ_CONFIG, return_value={"mcpServers": {}})
+    @patch(_P_RESOLVE_LOCATIONS)
+    @patch(_P_READ_LOCKFILE)
+    async def test_skips_reinstall_for_http_remote_alias(
+        self,
+        mock_read_lockfile: MagicMock,
+        mock_resolve: MagicMock,
+        _mock_read_config: MagicMock,
+        mock_parse_servers: MagicMock,
+        mock_write: MagicMock,
+    ) -> None:
+        """Should skip reinstall when HTTP URL already exists under a different alias."""
+        locked = _locked_server(
+            package_identifier="https://mcp.vercel.com",
+            command="",
+            args=["https://mcp.vercel.com"],
+        )
+        mock_read_lockfile.return_value = _lockfile_with_servers(vercel_mcp=locked)
+        mock_resolve.return_value = [_fake_location(path="/tmp/client.json")]
+        mock_parse_servers.return_value = [
+            InstalledServer(
+                name="vercel",
+                config=HttpServerConfig(url="https://mcp.vercel.com", transport_type="http"),
+                source_file="/tmp/client.json",
+            )
+        ]
+
+        installer_resolver = AsyncMock()
+        connection_tester = AsyncMock()
+        ctx = _make_ctx(
+            installer_resolver=installer_resolver,
+            connection_tester=connection_tester,
+        )
+
+        result = await restore("/my/project", ctx)
+
+        assert result["success"] is True
+        server = result["servers"][0]
+        assert server["status"] == "already_installed"
+        assert server["installed_as"] == "vercel"
+        installer_resolver.resolve_installer.assert_not_awaited()
+        connection_tester.test_server_connection.assert_not_awaited()
+        mock_write.assert_not_called()
 
 
 # === Env keys reporting =====================================================

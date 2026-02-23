@@ -134,6 +134,9 @@ class InstalledServer:
     name: str
     config: ServerConfig | HttpServerConfig
     source_file: str
+    package_identifier: str = ""
+    registry_type: str = ""
+    repository_url: str = ""
 
 
 # ─── Tool Return Models ───────────────────────────────────────

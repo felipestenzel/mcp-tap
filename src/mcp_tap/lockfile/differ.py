@@ -2,6 +2,12 @@
 
 from __future__ import annotations
 
+from mcp_tap.config.matching import (
+    find_matching_installed_server,
+    installed_http_url,
+    is_locked_http_server,
+    locked_http_url,
+)
 from mcp_tap.lockfile.hasher import compute_tools_hash
 from mcp_tap.models import (
     DriftEntry,
@@ -13,9 +19,6 @@ from mcp_tap.models import (
     Lockfile,
     ServerHealth,
 )
-
-_HTTP_URL_PREFIXES = ("https://", "http://")
-_HTTP_REGISTRY_TYPES = frozenset({"streamable-http", "http", "sse"})
 
 
 def diff_lockfile(
@@ -32,12 +35,15 @@ def diff_lockfile(
     - Config command/args mismatch -> CONFIG_CHANGED (warning)
     """
     drift: list[DriftEntry] = []
-    installed_names = {s.name for s in installed}
     health_by_name = {h.name: h for h in (healths or [])}
+    matched_installed_names: set[str] = set()
 
     # Check each locked server against installed state
     for name, locked in lockfile.servers.items():
-        if name not in installed_names:
+        installed_server = find_matching_installed_server(
+            name, locked, installed, used_installed_names=matched_installed_names
+        )
+        if installed_server is None:
             drift.append(
                 DriftEntry(
                     server=name,
@@ -48,21 +54,19 @@ def diff_lockfile(
             )
             continue
 
-        # Find matching installed server
-        installed_server = next(s for s in installed if s.name == name)
+        matched_installed_names.add(installed_server.name)
 
         # Check config drift (command and args)
         drift.extend(_check_config_drift(name, locked, installed_server))
 
         # Check tools drift if health data is available
-        health = health_by_name.get(name)
+        health = health_by_name.get(name) or health_by_name.get(installed_server.name)
         if health and health.status == "healthy" and locked.tools:
             drift.extend(_check_tools_drift(name, locked, health))
 
     # Check for extra servers (installed but not locked)
-    locked_names = set(lockfile.servers)
     for server in installed:
-        if server.name not in locked_names:
+        if server.name not in matched_installed_names:
             drift.append(
                 DriftEntry(
                     server=server.name,
@@ -82,9 +86,9 @@ def _check_config_drift(
 ) -> list[DriftEntry]:
     """Check if command/args have drifted from locked config."""
     drift: list[DriftEntry] = []
-    if _is_locked_http_server(locked):
-        locked_url = _extract_locked_http_url(locked)
-        installed_url = _extract_installed_http_url(installed)
+    if is_locked_http_server(locked):
+        locked_url = locked_http_url(locked)
+        installed_url = installed_http_url(installed)
         if locked_url and installed_url and locked_url == installed_url:
             return []
         drift.append(
@@ -119,42 +123,11 @@ def _check_config_drift(
     return drift
 
 
-def _is_locked_http_server(locked: LockedServer) -> bool:
-    """Return True when a lockfile entry represents an HTTP/SSE server."""
-    return (
-        locked.package_identifier.startswith(_HTTP_URL_PREFIXES)
-        or locked.registry_type in _HTTP_REGISTRY_TYPES
-        or _extract_http_url(locked.config.args) is not None
-    )
-
-
-def _extract_locked_http_url(locked: LockedServer) -> str | None:
-    """Extract canonical URL from a locked HTTP entry."""
-    if locked.package_identifier.startswith(_HTTP_URL_PREFIXES):
-        return locked.package_identifier
-    return _extract_http_url(locked.config.args)
-
-
-def _extract_installed_http_url(installed: InstalledServer) -> str | None:
-    """Extract configured URL for installed HTTP or mcp-remote entry."""
-    if isinstance(installed.config, HttpServerConfig):
-        return installed.config.url
-    return _extract_http_url(installed.config.args)
-
-
 def _installed_config_fields(installed: InstalledServer) -> tuple[str, list[str]]:
     """Return installed config as command/args tuple for drift detail messages."""
     if isinstance(installed.config, HttpServerConfig):
         return installed.config.transport_type, [installed.config.url]
     return installed.config.command, list(installed.config.args)
-
-
-def _extract_http_url(args: list[str]) -> str | None:
-    """Return first HTTP URL token from args, if any."""
-    for arg in args:
-        if arg.startswith(_HTTP_URL_PREFIXES):
-            return arg
-    return None
 
 
 def _check_tools_drift(

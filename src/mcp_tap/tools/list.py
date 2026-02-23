@@ -8,8 +8,10 @@ from pathlib import Path
 from mcp.server.fastmcp import Context
 
 from mcp_tap.config.detection import detect_clients, resolve_config_path
+from mcp_tap.config.matching import find_matching_locked_server
 from mcp_tap.config.reader import parse_servers, read_config
 from mcp_tap.errors import McpTapError
+from mcp_tap.lockfile.reader import read_lockfile
 from mcp_tap.models import HttpServerConfig, MCPClient
 
 # Key names that indicate secrets (case-insensitive substring match)
@@ -85,6 +87,7 @@ def _mask_env(env: dict[str, str]) -> dict[str, str]:
 async def list_installed(
     ctx: Context,
     client: str = "",
+    project_path: str = "",
 ) -> list[dict[str, object]]:
     """List all MCP servers currently configured in your AI client.
 
@@ -98,6 +101,10 @@ async def list_installed(
     Args:
         client: Which MCP client's config to read. One of "claude_desktop",
             "claude_code", "cursor", "windsurf". Auto-detects if empty.
+        project_path: Optional project directory containing ``mcp-tap.lock``.
+            When provided, output is enriched with canonical identity fields
+            (``package_identifier``, ``registry_type``, ``repository_url``)
+            for matched servers.
 
     Returns:
         List of configured servers, each with: name, command, args,
@@ -114,29 +121,53 @@ async def list_installed(
 
         raw = read_config(Path(location.path))
         servers = parse_servers(raw, source_file=location.path)
+        lockfile = read_lockfile(Path(project_path)) if project_path else None
+        locked_servers = lockfile.servers if lockfile else {}
+        used_locked_names: set[str] = set()
 
         result: list[dict[str, object]] = []
         for s in servers:
+            canonical = {
+                "package_identifier": s.package_identifier,
+                "registry_type": s.registry_type,
+                "repository_url": s.repository_url,
+            }
+            if locked_servers:
+                match = find_matching_locked_server(s, locked_servers, used_locked_names)
+                if match is not None:
+                    locked_name, locked = match
+                    used_locked_names.add(locked_name)
+                    canonical = {
+                        "package_identifier": locked.package_identifier,
+                        "registry_type": locked.registry_type,
+                        "repository_url": locked.repository_url,
+                    }
+
             if isinstance(s.config, HttpServerConfig):
-                result.append(
-                    {
-                        "name": s.name,
-                        "type": s.config.transport_type,
-                        "url": s.config.url,
-                        "env": _mask_env(dict(s.config.env)),
-                        "config_file": s.source_file,
-                    }
-                )
+                entry: dict[str, object] = {
+                    "name": s.name,
+                    "type": s.config.transport_type,
+                    "url": s.config.url,
+                    "env": _mask_env(dict(s.config.env)),
+                    "config_file": s.source_file,
+                }
             else:
-                result.append(
-                    {
-                        "name": s.name,
-                        "command": s.config.command,
-                        "args": s.config.args,
-                        "env": _mask_env(s.config.env),
-                        "config_file": s.source_file,
-                    }
-                )
+                entry = {
+                    "name": s.name,
+                    "command": s.config.command,
+                    "args": s.config.args,
+                    "env": _mask_env(s.config.env),
+                    "config_file": s.source_file,
+                }
+
+            if canonical["package_identifier"]:
+                entry["package_identifier"] = canonical["package_identifier"]
+            if canonical["registry_type"]:
+                entry["registry_type"] = canonical["registry_type"]
+            if canonical["repository_url"]:
+                entry["repository_url"] = canonical["repository_url"]
+
+            result.append(entry)
         return result
     except McpTapError as exc:
         return [{"success": False, "error": str(exc)}]
