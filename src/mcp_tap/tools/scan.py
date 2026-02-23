@@ -8,10 +8,10 @@ from pathlib import Path
 from mcp.server.fastmcp import Context
 
 from mcp_tap.config.detection import detect_clients, resolve_config_path
+from mcp_tap.config.matching import installed_matches_package_identifier
 from mcp_tap.config.reader import parse_servers, read_config
 from mcp_tap.errors import McpTapError
 from mcp_tap.models import (
-    HttpServerConfig,
     InstalledServer,
     MCPClient,
     RegistryType,
@@ -231,7 +231,7 @@ def _is_recommendation_installed(
     installed_names: set[str],
     installed_servers: list[InstalledServer],
 ) -> bool:
-    """Check if a recommendation is already installed by name or equivalent config."""
+    """Check if a recommendation is already installed by name or canonical identifier."""
     if rec.server_name in installed_names:
         return True
 
@@ -239,17 +239,9 @@ def _is_recommendation_installed(
     if not pkg_id:
         return False
 
-    for installed in installed_servers:
-        cfg = installed.config
-        if isinstance(cfg, HttpServerConfig):
-            if cfg.url == pkg_id:
-                return True
-            continue
-
-        if cfg.command == pkg_id or pkg_id in cfg.args:
-            return True
-
-    return False
+    return any(
+        installed_matches_package_identifier(installed, pkg_id) for installed in installed_servers
+    )
 
 
 def _serialize_registry_type(rec: ServerRecommendation) -> str:

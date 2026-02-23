@@ -1,7 +1,7 @@
 # I2 — Security Gate: Pre-install safety checks
 
 - **Date**: 2026-02-19
-- **Status**: `in_progress`
+- **Status**: `done`
 - **Branch**: `feature/2026-02-19-security-gate`
 - **Priority**: `high`
 
@@ -37,13 +37,15 @@ New `src/mcp_tap/security/` module with pre-install gate integrated into `config
 
 ## Files Changed
 
-(Fill after implementation)
+- `src/mcp_tap/security/gate.py` — motor do gate de segurança
+- `src/mcp_tap/tools/configure.py` — integração do gate antes da escrita de config
+- `tests/test_security_gate.py` — cobertura de bloqueios/avisos e integração
 
 ## Verification
 
-- [ ] Tests pass: `pytest tests/`
-- [ ] Linter passes: `ruff check src/ tests/`
-- [ ] Security gate blocks archived repos
-- [ ] Security gate warns on low-star repos
-- [ ] Security gate warns on very new repos
-- [ ] Integration with configure_server works
+- [x] Tests pass: `pytest tests/`
+- [x] Linter passes: `ruff check src/ tests/`
+- [x] Security gate blocks archived repos
+- [x] Security gate warns on low-star repos
+- [x] Security gate warns on very new repos
+- [x] Integration with configure_server works

@@ -281,6 +281,22 @@ class TestNoDrift:
         result = diff_lockfile(lockfile, installed)
         assert result == []
 
+    def test_alias_mismatch_non_http_matches_by_package_identifier(self) -> None:
+        """Should treat alias mismatch as equivalent when canonical package matches."""
+        lockfile = Lockfile(
+            servers={
+                "postgres-mcp": _locked_server(
+                    command="npx",
+                    args=["-y", "@mcp/server-postgres"],
+                    pkg="@mcp/server-postgres",
+                )
+            },
+        )
+        installed = [_installed("pg", command="npx", args=["-y", "@mcp/server-postgres"])]
+
+        result = diff_lockfile(lockfile, installed)
+        assert result == []
+
 
 # === diff_lockfile: CONFIG_CHANGED drift ====================================
 
@@ -603,9 +619,9 @@ class TestCombinedDrift:
     def test_missing_and_extra_together(self) -> None:
         """Should report MISSING for locked-only and EXTRA for installed-only."""
         lockfile = Lockfile(
-            servers={"locked-only": _locked_server()},
+            servers={"locked-only": _locked_server(pkg="locked-only-pkg")},
         )
-        installed = [_installed("installed-only")]
+        installed = [_installed("installed-only", args=["-y", "installed-only-pkg"])]
 
         result = diff_lockfile(lockfile, installed)
 
@@ -651,13 +667,13 @@ class TestCombinedDrift:
                     tools_hash=compute_tools_hash(locked_tools_pg),
                 ),
                 "redis": _locked_server(command="uvx", args=["redis-mcp"]),
-                "missing-svr": _locked_server(),
+                "missing-svr": _locked_server(pkg="missing-only-pkg"),
             },
         )
         installed = [
             _installed("pg", command="npx", args=["-y", "pg"]),  # config matches
             _installed("redis", command="npx", args=["redis-mcp"]),  # config changed!
-            _installed("extra-svr"),  # not in lockfile
+            _installed("extra-svr", args=["-y", "extra-only-pkg"]),  # not in lockfile
         ]
         # pg tools changed, redis has no health data
         healths = [_healthy("pg", ["query", "new_tool"])]

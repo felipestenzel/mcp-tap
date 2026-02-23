@@ -8,12 +8,21 @@ from pathlib import Path
 from mcp.server.fastmcp import Context
 
 from mcp_tap.config.detection import resolve_config_locations
+from mcp_tap.config.matching import find_matching_installed_server
+from mcp_tap.config.reader import parse_servers, read_config
 from mcp_tap.config.writer import write_server_config
 from mcp_tap.connection.base import ConnectionTesterPort
 from mcp_tap.errors import McpTapError
 from mcp_tap.installer.base import InstallerResolverPort
 from mcp_tap.lockfile.reader import read_lockfile
-from mcp_tap.models import ConfigLocation, LockedServer, Lockfile, RegistryType, ServerConfig
+from mcp_tap.models import (
+    ConfigLocation,
+    InstalledServer,
+    LockedServer,
+    Lockfile,
+    RegistryType,
+    ServerConfig,
+)
 from mcp_tap.tools._helpers import get_context
 
 logger = logging.getLogger(__name__)
@@ -85,11 +94,31 @@ async def restore(
         if dry_run:
             return _build_dry_run_result(lockfile, locations, lockfile_path)
 
+        installed_servers = _read_installed_servers(locations)
+
         # Restore each server
         results: list[dict[str, object]] = []
         all_env_keys: list[dict[str, object]] = []
 
         for name, locked in lockfile.servers.items():
+            existing = _find_existing_server(name, locked, installed_servers)
+            if existing is not None:
+                results.append(
+                    {
+                        "server": name,
+                        "success": True,
+                        "status": "already_installed",
+                        "installed_as": existing.name,
+                        "package": locked.package_identifier,
+                        "version": locked.version,
+                        "message": (
+                            f"Server already installed as '{existing.name}' in "
+                            f"{existing.source_file}. Skipped reinstall."
+                        ),
+                    }
+                )
+                continue
+
             result = await _restore_server(
                 name,
                 locked,
@@ -137,6 +166,27 @@ async def restore(
     except Exception as exc:
         await ctx.error(f"Unexpected error in restore: {exc}")
         return {"success": False, "error": f"Internal error: {type(exc).__name__}"}
+
+
+def _read_installed_servers(locations: list[ConfigLocation]) -> list[InstalledServer]:
+    """Read currently installed servers from all target config locations."""
+    installed: list[InstalledServer] = []
+    for loc in locations:
+        try:
+            raw = read_config(Path(loc.path))
+            installed.extend(parse_servers(raw, source_file=loc.path))
+        except Exception:
+            logger.debug("Failed to read installed servers from %s", loc.path, exc_info=True)
+    return installed
+
+
+def _find_existing_server(
+    name: str,
+    locked: LockedServer,
+    installed_servers: list[InstalledServer],
+) -> InstalledServer | None:
+    """Find an existing installed server matching this lockfile entry."""
+    return find_matching_installed_server(name, locked, installed_servers)
 
 
 async def _restore_server(

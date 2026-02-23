@@ -1,7 +1,7 @@
 # Identidade canônica de servidor: eliminar falsos-negativos por alias drift
 
 - **Date**: 2026-02-23
-- **Status**: `in_progress`
+- **Status**: `done`
 - **Branch**: `feature/2026-02-23-canonical-server-identity`
 - **Priority**: `medium`
 
@@ -85,6 +85,14 @@ Implementado:
 Cobertura de regressão adicionada em `tests/test_differ.py`, incluindo cenário com
 `command=""` e `args=[]` no lockfile.
 
+### Update 2026-02-23 — fase 2 concluída
+
+Implementado nesta fase:
+- `verify/diff_lockfile` com matching canônico por package identifier (não só nome)
+- `restore` com detecção de já-instalado por canonical key (`status: already_installed`)
+- `list_installed` com enriquecimento canônico a partir do lockfile (`project_path`)
+- módulo compartilhado `config/matching.py` usado por `scan`, `verify`, `restore` e `list`
+
 ### Abordagem recomendada em 3 camadas
 
 **Camada 1 — Modelo** (`models.py`):
@@ -150,9 +158,18 @@ Adicionar função auxiliar `_config_matches_package_id(config, pkg_id)` que:
 
 ## Files Changed
 
-- `src/mcp_tap/lockfile/differ.py` — equivalência HTTP por URL para eliminar falso `CONFIG_CHANGED`
-- `tests/test_differ.py` — regressões HTTP (native vs mcp-remote, URL mismatch, lockfile args vazio)
-- `docs/issues/2026-02-23_canonical-server-identity.md` — decisão de escopo e progresso
+- `src/mcp_tap/models.py` — campos canônicos opcionais em `InstalledServer`
+- `src/mcp_tap/config/matching.py` — módulo compartilhado de equivalência
+- `src/mcp_tap/lockfile/differ.py` — matching canônico + equivalência HTTP
+- `src/mcp_tap/tools/restore.py` — skip de reinstall por canonical key
+- `src/mcp_tap/tools/list.py` — enriquecimento canônico via lockfile
+- `src/mcp_tap/tools/scan.py` — matching delegado para módulo compartilhado
+- `tests/test_differ.py` — regressões HTTP + alias não-HTTP
+- `tests/test_restore.py` — casos `already_installed`
+- `tests/test_tools_list.py` — enriquecimento canônico em output
+- `tests/test_matching.py` — cobertura do módulo compartilhado
+- `tests/test_release_smoke.py` — smoke lockfile/config canônico
+- `docs/issues/2026-02-23_canonical-server-identity.md` — fechamento
 
 ## Verification
 
@@ -161,10 +178,10 @@ Adicionar função auxiliar `_config_matches_package_id(config, pkg_id)` que:
 - [x] `verify`: lockfile HTTP + `mcp-remote` com mesma URL → sem `CONFIG_CHANGED`
 - [x] `verify`: lockfile HTTP + config nativa HTTP com mesma URL → sem `CONFIG_CHANGED`
 - [x] `verify`: lockfile HTTP + URL instalada diferente → `CONFIG_CHANGED`
-- [ ] `verify`: lockfile com alias diferente (não-HTTP) + mesma canonical key → sem `MISSING/EXTRA`
-- [ ] `restore`: package já instalado como `vercel` → `status: already_installed`, sem reinstall
-- [ ] `list_installed`: servidores com `package_identifier` populado mostram o campo
-- [ ] Servidores instalados manualmente (sem mcp-tap) → comportamento idêntico ao atual
+- [x] `verify`: lockfile com alias diferente (não-HTTP) + mesma canonical key → sem `MISSING/EXTRA`
+- [x] `restore`: package já instalado como `vercel` → `status: already_installed`, sem reinstall
+- [x] `list_installed`: servidores com `package_identifier` populado mostram o campo
+- [x] Servidores instalados manualmente (sem mcp-tap) → comportamento idêntico ao atual
 
 ## Edge Cases
 

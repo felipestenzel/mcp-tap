@@ -9,6 +9,9 @@ from mcp_tap.models import (
     ConfigLocation,
     HttpServerConfig,
     InstalledServer,
+    LockedConfig,
+    LockedServer,
+    Lockfile,
     MCPClient,
     ServerConfig,
 )
@@ -385,3 +388,75 @@ class TestListInstalledHttpServers:
         http = next(r for r in result if r["name"] == "vercel")
         assert "command" in stdio
         assert "url" in http
+
+
+class TestListInstalledCanonicalIdentity:
+    """Tests lockfile-based canonical identity enrichment in list output."""
+
+    @patch("mcp_tap.tools.list.read_lockfile")
+    @patch("mcp_tap.tools.list.parse_servers")
+    @patch("mcp_tap.tools.list.read_config")
+    @patch("mcp_tap.tools.list.detect_clients")
+    async def test_enriches_with_lockfile_identity_using_alias_match(
+        self,
+        mock_detect,
+        mock_read_config,
+        mock_parse_servers,
+        mock_read_lockfile,
+    ):
+        mock_detect.return_value = [_fake_location(path="/tmp/client.json")]
+        mock_read_config.return_value = {"mcpServers": {}}
+        mock_parse_servers.return_value = [
+            InstalledServer(
+                name="pg",
+                config=ServerConfig(command="npx", args=["-y", "@mcp/server-postgres"]),
+                source_file="/tmp/client.json",
+            )
+        ]
+        mock_read_lockfile.return_value = Lockfile(
+            lockfile_version=1,
+            generated_by="mcp-tap@test",
+            generated_at="2026-02-23T00:00:00Z",
+            servers={
+                "postgres-mcp": LockedServer(
+                    package_identifier="@mcp/server-postgres",
+                    registry_type="npm",
+                    version="1.0.0",
+                    repository_url="https://github.com/example/postgres-server",
+                    config=LockedConfig(command="npx", args=["-y", "@mcp/server-postgres"]),
+                    tools=[],
+                    tools_hash="",
+                    installed_at="2026-02-23T00:00:00Z",
+                )
+            },
+        )
+
+        result = await list_installed(_make_ctx(), project_path="/project")
+
+        assert len(result) == 1
+        assert result[0]["name"] == "pg"
+        assert result[0]["package_identifier"] == "@mcp/server-postgres"
+        assert result[0]["registry_type"] == "npm"
+        assert result[0]["repository_url"] == "https://github.com/example/postgres-server"
+        mock_read_lockfile.assert_called_once()
+
+    @patch("mcp_tap.tools.list.read_lockfile")
+    @patch("mcp_tap.tools.list.parse_servers")
+    @patch("mcp_tap.tools.list.read_config")
+    @patch("mcp_tap.tools.list.detect_clients")
+    async def test_without_project_path_does_not_call_lockfile(
+        self,
+        mock_detect,
+        mock_read_config,
+        mock_parse_servers,
+        mock_read_lockfile,
+    ):
+        mock_detect.return_value = [_fake_location(path="/tmp/client.json")]
+        mock_read_config.return_value = {"mcpServers": {}}
+        mock_parse_servers.return_value = [_installed_server("pg-mcp")]
+
+        result = await list_installed(_make_ctx())
+
+        assert len(result) == 1
+        assert "package_identifier" not in result[0]
+        mock_read_lockfile.assert_not_called()
