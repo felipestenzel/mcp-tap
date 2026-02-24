@@ -155,6 +155,20 @@ class TestScanReturnsRecommendations:
                 "sse",
             )
 
+    @patch("mcp_tap.tools.scan.emit_recommendations_shown", return_value="qry-123")
+    @patch("mcp_tap.tools.scan._get_installed_server_names", return_value=set())
+    async def test_includes_feedback_query_id_when_telemetry_event_is_emitted(
+        self,
+        _mock_installed: MagicMock,
+        mock_emit: MagicMock,
+    ):
+        """Should expose feedback_query_id so accepted events can link to shown ranking."""
+        ctx = _make_ctx()
+        result = await scan_project(ctx, path=str(MINIMAL))
+
+        assert result["feedback_query_id"] == "qry-123"
+        mock_emit.assert_called_once()
+
 
 class TestScanReturnsEnvVars:
     """Tests that scan_project extracts environment variables."""

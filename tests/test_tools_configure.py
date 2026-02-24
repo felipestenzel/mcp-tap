@@ -167,6 +167,45 @@ class TestConfigureHappyPath:
         assert result["validation_passed"] is True
         assert len(result["tools_discovered"]) == 3
 
+    @patch("mcp_tap.tools.configure.emit_recommendation_decision")
+    @patch("mcp_tap.tools.configure.write_server_config")
+    @patch("mcp_tap.tools.configure.resolve_config_locations")
+    async def test_emits_accepted_feedback_on_success(
+        self,
+        mock_locations: MagicMock,
+        mock_write: MagicMock,
+        mock_emit: MagicMock,
+    ):
+        """Should emit recommendation_accepted event for successful configure."""
+        mock_locations.return_value = [_fake_location()]
+        installer_resolver = AsyncMock()
+        installer_resolver.resolve_installer = AsyncMock(return_value=_mock_installer())
+        connection_tester = AsyncMock()
+        connection_tester.test_server_connection = AsyncMock(return_value=_ok_connection_result())
+        ctx = _make_ctx(
+            installer_resolver=installer_resolver,
+            connection_tester=connection_tester,
+        )
+
+        result = await configure_server(
+            server_name="pg-server",
+            package_identifier="@modelcontextprotocol/server-postgres",
+            ctx=ctx,
+            clients="claude_code",
+            project_path="/tmp/project-a",
+            feedback_query_id="qry-123",
+        )
+
+        assert result["success"] is True
+        mock_emit.assert_called_once_with(
+            decision_type="recommendation_accepted",
+            server_name="pg-server",
+            query_id="qry-123",
+            project_path="/tmp/project-a",
+            client="claude_code",
+            metadata={"source": "configure_server"},
+        )
+
     @patch("mcp_tap.tools.configure.write_server_config")
     @patch("mcp_tap.tools.configure.resolve_config_locations")
     async def test_config_written_contains_command_and_args(

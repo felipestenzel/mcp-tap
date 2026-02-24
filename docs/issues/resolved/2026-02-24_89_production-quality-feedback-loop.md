@@ -2,8 +2,8 @@
 
 - **Date**: 2026-02-24
 - **Issue**: #89
-- **Status**: `open`
-- **Branch**: `feature/2026-02-24-quality-gap-issues`
+- **Status**: `done`
+- **Branch**: `fix/2026-02-24-production-quality-feedback-loop`
 - **Priority**: `high`
 
 ## Problem
@@ -51,22 +51,28 @@ Implement an opt-in production quality loop:
 
 ## Files Changed
 
-- `src/mcp_tap/benchmark/` (extend metrics and reporting)
-- potential new telemetry module (if accepted in architecture)
-- docs for privacy policy and opt-in controls
+- `src/mcp_tap/benchmark/production_feedback.py` — event schema, JSONL telemetry, aggregation, CLI report
+- `src/mcp_tap/tools/scan.py` — emits `recommendations_shown` (best-effort) and returns `feedback_query_id`
+- `src/mcp_tap/tools/configure.py` — emits `recommendation_accepted` on successful configure
+- `tests/test_production_feedback.py` — schema/metrics/version trend tests with synthetic events
+- `tests/test_tools_scan.py` — telemetry hook assertion for scan output
+- `tests/test_tools_configure.py` — telemetry hook assertion for configure success
+- `README.md` — opt-in policy and reporting command
 - `docs/issues/2026-02-24_89_production-quality-feedback-loop.md` — issue tracking
 
 ## Verification
 
-- [ ] Tests pass: `pytest tests/`
-- [ ] Linter passes: `ruff check src/ tests/`
-- [ ] Event schema validated via tests
-- [ ] Synthetic data produces stable quality report output
-- [ ] Version-based trend segmentation works
+- [x] Tests pass: `uv run pytest tests/ -q`
+- [x] Linter passes: `uv run ruff check src/ tests/`
+- [x] Event schema validated via tests
+- [x] Synthetic data produces stable quality report output
+- [x] Version-based trend segmentation works
 
 ## Lessons Learned
 
-(Complete after delivery)
+- Telemetry must stay strictly opt-in and fail-safe; feedback capture can never break core configure/scan flows.
+- A single event schema with query-linked IDs makes offline benchmark and online usage metrics directly comparable.
+- Drift gating is safer as warn/block thresholds over version deltas instead of absolute static thresholds.
 
 ## References
 

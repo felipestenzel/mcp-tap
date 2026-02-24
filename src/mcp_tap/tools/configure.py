@@ -9,6 +9,7 @@ from pathlib import Path
 
 from mcp.server.fastmcp import Context
 
+from mcp_tap.benchmark.production_feedback import emit_recommendation_decision
 from mcp_tap.config.detection import client_supports_http_native, resolve_config_locations
 from mcp_tap.config.writer import write_server_config
 from mcp_tap.connection.base import ConnectionTesterPort
@@ -53,6 +54,7 @@ async def configure_server(
     env_vars: str = "",
     scope: str = "user",
     project_path: str = "",
+    feedback_query_id: str = "",
 ) -> dict[str, object]:
     """Install an MCP server package, add it to your client config, and verify it works.
 
@@ -91,6 +93,8 @@ async def configure_server(
         scope: "user" for global config (default), "project" for
             project-scoped config (e.g. .cursor/mcp.json in the project dir).
         project_path: Project directory path. Required when scope="project".
+        feedback_query_id: Optional query_id from scan/search telemetry event
+            so accepted recommendations can be linked to shown rankings.
 
     Returns:
         Result with: success, install_status, config_written, validation_passed,
@@ -179,6 +183,14 @@ async def configure_server(
                     tools=[],
                 )
 
+            if result.get("success"):
+                _emit_feedback_accepted(
+                    server_name=server_name,
+                    feedback_query_id=feedback_query_id,
+                    project_path=project_path,
+                    clients=clients,
+                )
+
             return result
 
         # Step 2b: Resolve installer and install the package (once)
@@ -263,6 +275,14 @@ async def configure_server(
                 version=version,
                 server_config=server_config,
                 tools=result.get("tools_discovered", []),
+            )
+
+        if result.get("success"):
+            _emit_feedback_accepted(
+                server_name=server_name,
+                feedback_query_id=feedback_query_id,
+                project_path=project_path,
+                clients=clients,
             )
 
         return result
@@ -747,6 +767,27 @@ def _update_lockfile(
         )
     except Exception:
         logger.debug("Failed to update lockfile", exc_info=True)
+
+
+def _emit_feedback_accepted(
+    *,
+    server_name: str,
+    feedback_query_id: str,
+    project_path: str,
+    clients: str,
+) -> None:
+    """Best-effort telemetry event for accepted/configured recommendations."""
+    try:
+        emit_recommendation_decision(
+            decision_type="recommendation_accepted",
+            server_name=server_name,
+            query_id=feedback_query_id,
+            project_path=project_path or "unknown",
+            client=clients or "auto",
+            metadata={"source": "configure_server"},
+        )
+    except Exception:
+        logger.debug("Failed to emit recommendation_accepted telemetry", exc_info=True)
 
 
 def _parse_env_vars(env_vars: str) -> dict[str, str]:

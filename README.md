@@ -163,6 +163,7 @@ Plus automatic lockfile management on every configure/remove.
 - **Connection validation**: Every install is verified with a real MCP connection test
 - **Secrets masked**: `list_installed` never exposes environment variable values
 - **Recommendation quality gate**: Offline benchmark (`precision@k`, `acceptance_rate`) keeps recommendation quality stable in CI
+- **Production feedback loop (opt-in)**: Privacy-safe telemetry (`recommendations_shown`, accepted/rejected/ignored) with version-segmented quality trends
 - **Semantic rerank**: Broad queries (for example `error monitoring`) are reranked by intent match, not only popularity
 
 ## Requirements
@@ -180,6 +181,26 @@ uv run python -m mcp_tap.benchmark.recommendation
 ```
 
 Dataset: `src/mcp_tap/benchmark/recommendation_dataset_v1.json`.
+
+## Production Feedback Loop (Opt-In)
+
+Enable telemetry explicitly before collecting production recommendation feedback:
+
+```bash
+export MCP_TAP_TELEMETRY_OPT_IN=true
+export MCP_TAP_TELEMETRY_FILE=.mcp-tap/recommendation_feedback.jsonl
+```
+
+Generate a quality report from collected events:
+
+```bash
+uv run python -m mcp_tap.benchmark.production_feedback --events .mcp-tap/recommendation_feedback.jsonl --top-k 3
+```
+
+The telemetry payload is privacy-safe by default:
+- project path is stored as hash fingerprint (no raw path)
+- no source code, secrets, or env var values are recorded
+- release trends include drift warnings/failures between versions
 
 ## License
 
