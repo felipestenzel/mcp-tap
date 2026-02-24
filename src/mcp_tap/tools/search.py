@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 from dataclasses import asdict
 
 from mcp.server.fastmcp import Context
@@ -23,6 +24,31 @@ from mcp_tap.scanner.scoring import relevance_sort_key, score_result
 from mcp_tap.tools._helpers import get_context
 
 logger = logging.getLogger(__name__)
+
+_RELEVANCE_SCORE: dict[str, float] = {
+    "high": 1.0,
+    "medium": 0.6,
+    "low": 0.2,
+}
+
+_CREDENTIAL_SCORE: dict[str, float] = {
+    "available": 1.0,
+    "none_required": 1.0,
+    "partial": 0.6,
+    "unknown": 0.4,
+    "missing": 0.0,
+}
+
+_DEFAULT_RELEVANCE_SCORE = 0.4
+_DEFAULT_CREDENTIAL_SCORE = 0.4
+
+_COMPOSITE_WEIGHTS: dict[str, float] = {
+    "relevance": 0.35,
+    "maturity": 0.30,
+    "verified": 0.15,
+    "use_count": 0.10,
+    "credential": 0.10,
+}
 
 
 async def search_servers(
@@ -61,7 +87,9 @@ async def search_servers(
         env_vars_required, repository_url, and source ("official" |
         "smithery" | "both"). When project_path is set, also includes
         relevance, match_reason, and credential_status. When evaluate is
-        True, also includes maturity. Smithery results also include
+        True, also includes maturity. All results include deterministic
+        ranking metadata: composite_score and composite_breakdown.
+        Smithery results also include
         use_count (popularity) and verified (quality badge).
     """
     try:
@@ -116,6 +144,9 @@ async def search_servers(
         # Fetch maturity signals from GitHub
         if evaluate:
             results = await _apply_maturity(results, app.github_metadata)
+
+        # Deterministic composite ranking (relevance + maturity + provenance + credentials)
+        results = _apply_composite_scoring(results)
 
         return results
     except McpTapError as exc:
@@ -288,3 +319,92 @@ async def _scan_project_safe(project_path: str) -> ProjectProfile | None:
             project_path,
         )
         return None
+
+
+def _extract_maturity_score(result: dict[str, object]) -> float:
+    """Extract maturity score from a result dict (0.0 when absent/invalid)."""
+    maturity = result.get("maturity")
+    if not isinstance(maturity, dict):
+        return 0.0
+    raw = maturity.get("score")
+    if not isinstance(raw, int | float):
+        return 0.0
+    return max(0.0, min(1.0, float(raw)))
+
+
+def _normalize_use_count(use_count: object) -> float:
+    """Normalize Smithery use_count into 0..1 using a log scale."""
+    if not isinstance(use_count, int) or use_count <= 0:
+        return 0.0
+    # 1000 use_count ~= 1.0; lower counts scale smoothly.
+    return max(0.0, min(1.0, math.log10(use_count + 1) / 3.0))
+
+
+def _compute_composite(result: dict[str, object]) -> tuple[float, dict[str, object]]:
+    """Compute deterministic ranking score and detailed breakdown for one result."""
+    relevance_label = str(result.get("relevance", "")).lower()
+    relevance_score = _RELEVANCE_SCORE.get(relevance_label, _DEFAULT_RELEVANCE_SCORE)
+
+    maturity_score = _extract_maturity_score(result)
+
+    verified_score = 1.0 if result.get("verified") is True else 0.0
+
+    use_count = result.get("use_count")
+    use_count_score = _normalize_use_count(use_count)
+
+    credential_label = str(result.get("credential_status", "")).lower()
+    credential_score = _CREDENTIAL_SCORE.get(credential_label, _DEFAULT_CREDENTIAL_SCORE)
+
+    contributions = {
+        "relevance": round(_COMPOSITE_WEIGHTS["relevance"] * relevance_score, 4),
+        "maturity": round(_COMPOSITE_WEIGHTS["maturity"] * maturity_score, 4),
+        "verified": round(_COMPOSITE_WEIGHTS["verified"] * verified_score, 4),
+        "use_count": round(_COMPOSITE_WEIGHTS["use_count"] * use_count_score, 4),
+        "credential": round(_COMPOSITE_WEIGHTS["credential"] * credential_score, 4),
+    }
+    total = round(sum(contributions.values()), 4)
+
+    breakdown: dict[str, object] = {
+        "weights": dict(_COMPOSITE_WEIGHTS),
+        "signals": {
+            "relevance": relevance_label or "unknown",
+            "maturity_score": round(maturity_score, 4),
+            "verified": bool(result.get("verified") is True),
+            "use_count": use_count if isinstance(use_count, int) else 0,
+            "credential_status": credential_label or "unknown",
+        },
+        "normalized": {
+            "relevance": round(relevance_score, 4),
+            "maturity": round(maturity_score, 4),
+            "verified": round(verified_score, 4),
+            "use_count": round(use_count_score, 4),
+            "credential": round(credential_score, 4),
+        },
+        "contributions": contributions,
+    }
+    return total, breakdown
+
+
+def _apply_composite_scoring(results: list[dict[str, object]]) -> list[dict[str, object]]:
+    """Attach deterministic composite ranking fields and sort results."""
+    indexed: list[tuple[int, dict[str, object]]] = []
+
+    for index, result in enumerate(results):
+        score, breakdown = _compute_composite(result)
+        result["composite_score"] = score
+        result["composite_breakdown"] = breakdown
+        indexed.append((index, result))
+
+    def _sort_key(item: tuple[int, dict[str, object]]) -> tuple[float, int, float, int, str, int]:
+        idx, result = item
+        return (
+            -float(result.get("composite_score", 0.0)),
+            relevance_sort_key(str(result.get("relevance", ""))),
+            -_extract_maturity_score(result),
+            -int(result.get("use_count", 0) if isinstance(result.get("use_count"), int) else 0),
+            str(result.get("name", "")).lower(),
+            idx,
+        )
+
+    indexed.sort(key=_sort_key)
+    return [item[1] for item in indexed]

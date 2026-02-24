@@ -1,0 +1,46 @@
+{
+  "name": "recommendation_dataset_v1",
+  "description": "Offline benchmark fixtures for recommendation quality gating.",
+  "top_k": 3,
+  "cases": [
+    {
+      "name": "python_fastapi_claude_code",
+      "project_path": "tests/fixtures/python_fastapi_project",
+      "client": "claude_code",
+      "expected_servers": ["postgres-mcp", "slack-mcp", "redis-mcp"]
+    },
+    {
+      "name": "node_express_claude_code",
+      "project_path": "tests/fixtures/node_express_project",
+      "client": "claude_code",
+      "expected_servers": ["postgres-mcp", "slack-mcp", "redis-mcp"]
+    },
+    {
+      "name": "python_fastapi_cursor",
+      "project_path": "tests/fixtures/python_fastapi_project",
+      "client": "cursor",
+      "top_k": 4,
+      "expected_servers": ["postgres-mcp", "github-mcp", "slack-mcp", "redis-mcp"]
+    },
+    {
+      "name": "node_express_windsurf",
+      "project_path": "tests/fixtures/node_express_project",
+      "client": "windsurf",
+      "top_k": 4,
+      "expected_servers": ["postgres-mcp", "github-mcp", "slack-mcp", "redis-mcp"]
+    },
+    {
+      "name": "minimal_project_claude_code",
+      "project_path": "tests/fixtures/minimal_project",
+      "client": "claude_code",
+      "expected_servers": []
+    },
+    {
+      "name": "empty_project_claude_code",
+      "project_path": "tests/fixtures/empty_project",
+      "client": "claude_code",
+      "expected_servers": []
+    }
+  ]
+}
+

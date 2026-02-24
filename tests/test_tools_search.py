@@ -18,6 +18,7 @@ from mcp_tap.models import (
 )
 from mcp_tap.server import AppContext
 from mcp_tap.tools.search import (
+    _apply_composite_scoring,
     _apply_project_scoring,
     _scan_project_safe,
     search_servers,
@@ -301,6 +302,82 @@ class TestApplyProjectScoring:
 
 
 # ===================================================================
+# _apply_composite_scoring -- Unit Tests
+# ===================================================================
+
+
+class TestApplyCompositeScoring:
+    """Tests for deterministic ranking based on combined quality signals."""
+
+    def test_adds_composite_fields(self):
+        """Should annotate each result with composite score and breakdown."""
+        results = [
+            {
+                "name": "postgres-mcp",
+                "relevance": "high",
+                "credential_status": "available",
+                "maturity": {"score": 0.8},
+                "verified": True,
+                "use_count": 220,
+            }
+        ]
+
+        ranked = _apply_composite_scoring(results)
+
+        assert len(ranked) == 1
+        assert "composite_score" in ranked[0]
+        assert "composite_breakdown" in ranked[0]
+        assert ranked[0]["composite_score"] > 0.0
+
+    def test_sorts_by_composite_score(self):
+        """Should rank stronger multi-signal candidates first."""
+        results = [
+            {
+                "name": "candidate-low",
+                "relevance": "low",
+                "credential_status": "missing",
+                "maturity": {"score": 0.1},
+                "verified": False,
+                "use_count": 0,
+            },
+            {
+                "name": "candidate-best",
+                "relevance": "high",
+                "credential_status": "available",
+                "maturity": {"score": 0.9},
+                "verified": True,
+                "use_count": 500,
+            },
+            {
+                "name": "candidate-mid",
+                "relevance": "medium",
+                "credential_status": "partial",
+                "maturity": {"score": 0.6},
+                "verified": False,
+                "use_count": 20,
+            },
+        ]
+
+        ranked = _apply_composite_scoring(results)
+        names = [r["name"] for r in ranked]
+
+        assert names == ["candidate-best", "candidate-mid", "candidate-low"]
+
+    def test_relevance_still_drives_order_when_other_signals_absent(self):
+        """Should preserve high > medium > low when only relevance is present."""
+        results = [
+            {"name": "low-candidate", "relevance": "low"},
+            {"name": "high-candidate", "relevance": "high"},
+            {"name": "medium-candidate", "relevance": "medium"},
+        ]
+
+        ranked = _apply_composite_scoring(results)
+        names = [r["name"] for r in ranked]
+
+        assert names == ["high-candidate", "medium-candidate", "low-candidate"]
+
+
+# ===================================================================
 # search_servers -- Medium Relevance
 # ===================================================================
 
@@ -396,6 +473,8 @@ class TestSearchResultStructure:
         assert r["repository_url"] == "https://github.com/test/server"
         # Only required env vars
         assert r["env_vars_required"] == ["API_KEY"]
+        assert "composite_score" in r
+        assert "composite_breakdown" in r
 
     async def test_remote_url_uses_transport_as_registry_type(self):
         """Should serialize URL-based remotes as streamable-http/sse instead of npm."""
