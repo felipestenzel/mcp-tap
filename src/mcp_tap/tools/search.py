@@ -72,6 +72,38 @@ _INTENT_PROVIDER_HINTS: dict[str, tuple[str, ...]] = {
     "incident_management": ("pagerduty", "opsgenie", "victorops"),
 }
 
+_INTENT_TERM_GROUPS: dict[str, tuple[frozenset[str], ...]] = {
+    "error_monitoring": (
+        frozenset(
+            {"error", "errors", "exception", "exceptions", "bug", "bugs", "crash", "crashes"}
+        ),
+        frozenset(
+            {
+                "monitoring",
+                "monitor",
+                "observability",
+                "tracking",
+                "alerting",
+                "alerts",
+                "alert",
+            }
+        ),
+    ),
+    "incident_management": (
+        frozenset(
+            {
+                "incident",
+                "incidents",
+                "oncall",
+                "on-call",
+                "pager",
+                "escalation",
+                "response",
+            }
+        ),
+    ),
+}
+
 _COMPOSITE_WEIGHTS: dict[str, float] = {
     "intent": 0.35,
     "relevance": 0.25,
@@ -322,16 +354,28 @@ def _score_intent_match(
     query: str,
     tokens: list[str],
     provider_hints: set[str],
-) -> tuple[float, str]:
+    intent_keys: list[str],
+) -> tuple[float, str, bool, list[str], list[str]]:
     """Score how well a result matches the semantic intent of the query."""
     searchable = f"{result.get('name', '')} {result.get('description', '')}".lower()
     normalized_query = " ".join(query.lower().split())
+    searchable_tokens = set(_TOKEN_RE.findall(searchable))
+    positive_signals: list[str] = []
+    negative_signals: list[str] = []
 
     if normalized_query and normalized_query in searchable:
-        return 1.0, "Direct query phrase match"
+        positive_signals.append("direct_query_phrase_match")
+        return 1.0, "Direct query phrase match", False, positive_signals, negative_signals
 
     if not tokens:
-        return _DEFAULT_INTENT_SCORE, "No semantic tokens extracted"
+        negative_signals.append("no_semantic_tokens")
+        return (
+            _DEFAULT_INTENT_SCORE,
+            "No semantic tokens extracted",
+            False,
+            positive_signals,
+            negative_signals,
+        )
 
     matched = [token for token in tokens if token in searchable]
     coverage = len(matched) / len(tokens)
@@ -345,32 +389,82 @@ def _score_intent_match(
         ),
         "",
     )
-    if matched_provider and coverage >= 0.5:
-        return 0.95, f"Provider hint match: {matched_provider}"
     if matched_provider:
-        return 0.90, f"Provider hint match: {matched_provider}"
+        positive_signals.append(f"provider_hint:{matched_provider}")
+    if matched_provider and coverage >= 0.5:
+        positive_signals.append("keyword_coverage:medium_or_higher")
+        return (
+            0.95,
+            f"Provider hint match: {matched_provider}",
+            False,
+            positive_signals,
+            negative_signals,
+        )
+    if matched_provider:
+        return (
+            0.90,
+            f"Provider hint match: {matched_provider}",
+            False,
+            positive_signals,
+            negative_signals,
+        )
+
+    # Intent gate: broad intent queries need semantic pair/group coverage.
+    for intent in intent_keys:
+        term_groups = _INTENT_TERM_GROUPS.get(intent, ())
+        if not term_groups:
+            continue
+        missing_groups = 0
+        for group in term_groups:
+            if any(term in searchable_tokens for term in group):
+                positive_signals.append(f"intent_group_match:{intent}")
+                continue
+            missing_groups += 1
+        if missing_groups > 0:
+            negative_signals.append(f"missing_intent_groups:{intent}")
+            return (
+                0.05,
+                f"Off-intent candidate for {intent.replace('_', ' ')}",
+                True,
+                positive_signals,
+                negative_signals,
+            )
+
     if coverage >= 0.75:
-        return 0.80, "Strong keyword coverage"
+        positive_signals.append("keyword_coverage:strong")
+        return 0.80, "Strong keyword coverage", False, positive_signals, negative_signals
     if coverage >= 0.50:
-        return 0.60, "Partial keyword coverage"
+        positive_signals.append("keyword_coverage:partial")
+        return 0.60, "Partial keyword coverage", False, positive_signals, negative_signals
     if coverage > 0:
-        return 0.35, "Weak keyword coverage"
-    return 0.0, "No intent keyword match"
+        negative_signals.append("keyword_coverage:weak")
+        return 0.35, "Weak keyword coverage", False, positive_signals, negative_signals
+    negative_signals.append("no_intent_keywords")
+    return 0.0, "No intent keyword match", False, positive_signals, negative_signals
 
 
 def _apply_intent_scoring(results: list[dict[str, object]], query: str) -> list[dict[str, object]]:
     """Attach intent-match score and reason for deterministic semantic rerank."""
     tokens = _query_tokens(query)
+    intent_keys = _infer_intent_keys(query)
     provider_hints = {
-        hint
-        for intent in _infer_intent_keys(query)
-        for hint in _INTENT_PROVIDER_HINTS.get(intent, ())
+        hint for intent in intent_keys for hint in _INTENT_PROVIDER_HINTS.get(intent, ())
     }
 
     for result in results:
-        score, reason = _score_intent_match(result, query, tokens, provider_hints)
+        score, reason, gate_applied, positive_signals, negative_signals = _score_intent_match(
+            result=result,
+            query=query,
+            tokens=tokens,
+            provider_hints=provider_hints,
+            intent_keys=intent_keys,
+        )
         result["intent_match_score"] = round(score, 4)
         result["intent_match_reason"] = reason
+        result["intent_confidence"] = round(score, 4)
+        result["intent_gate_applied"] = gate_applied
+        result["intent_positive_signals"] = positive_signals
+        result["intent_negative_signals"] = negative_signals
 
     return results
 
@@ -583,6 +677,7 @@ def _compute_composite(result: dict[str, object]) -> tuple[float, dict[str, obje
         "signals": {
             "intent_match_reason": str(result.get("intent_match_reason", "")),
             "intent_match_score": round(intent_score, 4),
+            "intent_gate_applied": bool(result.get("intent_gate_applied") is True),
             "relevance": relevance_label or "unknown",
             "maturity_score": round(maturity_score, 4),
             "verified": bool(result.get("verified") is True),

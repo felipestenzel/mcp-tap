@@ -1,4 +1,4 @@
-"""Release E2E client matrix for configure/list/verify/restore critical flows."""
+"""Release E2E client matrix for configure/list/verify/health/remove/restore flows."""
 
 from __future__ import annotations
 
@@ -17,7 +17,9 @@ from mcp_tap.models import (
 )
 from mcp_tap.server import AppContext
 from mcp_tap.tools.configure import configure_server
+from mcp_tap.tools.health import check_health
 from mcp_tap.tools.list import list_installed
+from mcp_tap.tools.remove import remove_server
 from mcp_tap.tools.restore import restore
 from mcp_tap.tools.verify import verify
 
@@ -64,6 +66,33 @@ def _restore_ctx() -> MagicMock:
     return ctx
 
 
+def _health_ctx() -> MagicMock:
+    app = MagicMock(spec=AppContext)
+    app.connection_tester = MagicMock()
+    app.connection_tester.test_server_connection = AsyncMock(
+        return_value=ConnectionTestResult(
+            success=True,
+            server_name="vercel",
+            tools_discovered=["deployments"],
+        )
+    )
+    app.http_reachability = MagicMock()
+    app.http_reachability.check_reachability = AsyncMock(
+        return_value=ConnectionTestResult(
+            success=True,
+            server_name="vercel",
+            tools_discovered=["deployments"],
+        )
+    )
+    app.healing = AsyncMock()
+
+    ctx = MagicMock()
+    ctx.request_context.lifespan_context = app
+    ctx.info = AsyncMock()
+    ctx.error = AsyncMock()
+    return ctx
+
+
 def _readonly_ctx() -> MagicMock:
     ctx = MagicMock()
     ctx.info = AsyncMock()
@@ -88,7 +117,7 @@ async def test_http_release_flow_per_client(
     client: MCPClient,
     expects_native_http: bool,
 ) -> None:
-    """End-to-end flow per client: configure -> list -> verify -> restore."""
+    """End-to-end flow per client with health and cleanup coverage."""
     project_path = tmp_path / client.value
     project_path.mkdir()
     config_path = project_path / "mcp.json"
@@ -138,6 +167,25 @@ async def test_http_release_flow_per_client(
     assert verified["clean"] is True
     assert verified["drift"] == []
 
+    # check_health should route through the right transport adapter
+    ctx_health = _health_ctx()
+    with patch("mcp_tap.tools.health.resolve_config_path", return_value=location):
+        health = await check_health(
+            ctx_health,
+            client=client.value,
+        )
+    assert health["total"] == 1
+    assert health["healthy"] == 1
+    assert health["unhealthy"] == 0
+
+    health_app = ctx_health.request_context.lifespan_context
+    if expects_native_http:
+        health_app.http_reachability.check_reachability.assert_awaited_once()
+        health_app.connection_tester.test_server_connection.assert_not_awaited()
+    else:
+        health_app.connection_tester.test_server_connection.assert_awaited_once()
+        health_app.http_reachability.check_reachability.assert_not_awaited()
+
     # restore (should skip reinstall via canonical matching)
     ctx_restore = _restore_ctx()
     with patch(
@@ -153,6 +201,30 @@ async def test_http_release_flow_per_client(
     assert restored["success"] is True
     assert restored["servers"][0]["status"] == "already_installed"
     ctx_restore.request_context.lifespan_context.installer_resolver.resolve_installer.assert_not_awaited()
+
+    # remove should clean config entry
+    with patch("mcp_tap.tools.remove.resolve_config_locations", return_value=[location]):
+        removed = await remove_server(
+            server_name="vercel",
+            ctx=_readonly_ctx(),
+            clients=client.value,
+        )
+    assert removed["success"] is True
+    raw_after_remove = json.loads(config_path.read_text(encoding="utf-8"))
+    assert "vercel" not in raw_after_remove["mcpServers"]
+
+    # verify should now detect lockfile drift (missing server)
+    with patch("mcp_tap.tools.verify.resolve_config_path", return_value=location):
+        verified_after_remove = await verify(
+            project_path=str(project_path),
+            ctx=_readonly_ctx(),
+            client=client.value,
+        )
+    assert verified_after_remove["clean"] is False
+    assert any(
+        drift["server"] == "vercel" and drift["drift_type"] == "missing"
+        for drift in verified_after_remove["drift"]
+    )
 
 
 async def test_http_release_matrix_multi_client_single_configure_call(tmp_path: Path) -> None:

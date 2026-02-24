@@ -2,8 +2,8 @@
 
 - **Date**: 2026-02-24
 - **Issue**: #88
-- **Status**: `open`
-- **Branch**: `feature/2026-02-24-quality-gap-issues`
+- **Status**: `done`
+- **Branch**: `fix/2026-02-24-client-e2e-matrix-hardening`
 - **Priority**: `high`
 
 ## Problem
@@ -54,15 +54,16 @@ Add a dedicated E2E matrix suite with full client workflows:
 
 ## Verification
 
-- [ ] Tests pass: `pytest tests/`
-- [ ] Linter passes: `ruff check src/ tests/`
-- [ ] E2E matrix covers all three clients
-- [ ] Mixed-client transport scenario validated in CI
-- [ ] CI blocks merge on client compatibility regressions
+- [x] Tests pass: `uv run pytest tests/ -q`
+- [x] Linter passes: `uv run ruff check src/ tests/`
+- [x] E2E matrix covers all three clients
+- [x] Mixed-client transport scenario validated in CI
+- [x] CI blocks merge on client compatibility regressions
 
 ## Lessons Learned
 
-(Complete after delivery)
+- `check_health` routing must be asserted per transport path (HTTP vs stdio), not only via aggregate counts.
+- Cleanup behavior (`remove_server`) should be part of the same matrix flow to catch lockfile/config drift regressions end-to-end.
 
 ## References
 
