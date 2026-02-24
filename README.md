@@ -169,6 +169,7 @@ Plus automatic lockfile management on every configure/remove.
 
 - Python 3.11+ with [`uv`](https://docs.astral.sh/uv/) (recommended), **or**
 - Node.js 18+ (the npm package is a thin wrapper that calls the Python package via `uvx`/`pipx`)
+- Officially tested in CI on Python 3.11, 3.12, 3.13, and 3.14
 
 ## Quality Gate
 
