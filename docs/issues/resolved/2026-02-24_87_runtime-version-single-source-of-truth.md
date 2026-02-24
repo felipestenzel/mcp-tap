@@ -2,8 +2,8 @@
 
 - **Date**: 2026-02-24
 - **Issue**: #87
-- **Status**: `open`
-- **Branch**: `feature/2026-02-24-quality-gap-issues`
+- **Status**: `done`
+- **Branch**: `fix/2026-02-24-runtime-version-source-of-truth`
 - **Priority**: `high`
 
 ## Problem
@@ -29,26 +29,36 @@ Version metadata is maintained in release files (`pyproject.toml`, npm wrapper),
 
 ## Solution
 
-Implement single-source runtime version resolution:
+Implemented single-source runtime version resolution:
 
-1. Resolve package version through `importlib.metadata.version("mcp-tap")` when installed
-2. Define deterministic fallback for local/source execution where metadata is unavailable
-3. Remove hardcoded legacy constant from runtime path
-4. Update smoke tests to validate runtime version behavior robustly
+1. `src/mcp_tap/__init__.py` now resolves version from installed distribution metadata:
+   - `importlib.metadata.version("mcp-tap")`
+2. Added deterministic fallback when distribution metadata is unavailable:
+   - `_LOCAL_VERSION_FALLBACK = "0.0.0+local"`
+3. Removed hardcoded legacy runtime version (`0.1.0`).
+4. Updated release smoke test to validate against installed distribution metadata.
+5. Added dedicated version tests for both installed and fallback code paths.
 
 ## Files Changed
 
 - `src/mcp_tap/__init__.py` — dynamic runtime version resolution
 - `tests/smoke_test.py` — align version assertion with packaging reality
-- `tests/test_models.py` or dedicated version test module — fallback/install-path coverage
+- `tests/test_version.py` — fallback/install-path coverage
 - `docs/issues/2026-02-24_87_runtime-version-single-source-of-truth.md` — issue tracking
 
 ## Verification
 
-- [ ] Tests pass: `pytest tests/`
-- [ ] Linter passes: `ruff check src/ tests/`
-- [ ] `mcp_tap.__version__` matches installed distribution version
-- [ ] Local source execution fallback documented and tested
+- [x] Tests pass: `pytest tests/`
+- [x] Linter passes: `ruff check src/ tests/`
+- [x] `mcp_tap.__version__` matches installed distribution version
+- [x] Local source execution fallback documented and tested
+
+Validation executed:
+- `uv run ruff check src/ tests/` -> `All checks passed!`
+- `uv run ruff format --check src/ tests/` -> `120 files already formatted`
+- `uv run pytest tests/test_version.py -q` -> `2 passed`
+- `uv run pytest tests/ -q` -> `1273 passed`
+- `uv run python tests/smoke_test.py` -> `mcp-tap 0.6.6 smoke test passed`
 
 ## Lessons Learned
 
