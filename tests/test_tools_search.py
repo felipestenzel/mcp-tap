@@ -172,6 +172,87 @@ class TestSemanticIntentRouting:
         assert results[0]["intent_match_score"] > results[1]["intent_match_score"]
         assert "Provider hint match" in results[0]["intent_match_reason"]
 
+    async def test_demotes_off_intent_candidates_for_error_monitoring(self):
+        ctx = _make_ctx()
+
+        off_intent = RegistryServer(
+            name="supabase-tooling",
+            description="Monitoring dashboards and database utilities for Supabase.",
+            version="1.0.0",
+            repository_url="https://example.com/supabase",
+            packages=[
+                PackageInfo(
+                    registry_type=RegistryType.NPM,
+                    identifier="supabase-tooling",
+                    version="1.0.0",
+                    transport=Transport.STDIO,
+                    environment_variables=[],
+                )
+            ],
+            use_count=9000,
+            verified=True,
+            source="smithery",
+        )
+        sentry = RegistryServer(
+            name="sentry-mcp",
+            description="Error tracking and alerting for production systems.",
+            version="1.0.0",
+            repository_url="https://example.com/sentry",
+            packages=[
+                PackageInfo(
+                    registry_type=RegistryType.NPM,
+                    identifier="sentry-mcp",
+                    version="1.0.0",
+                    transport=Transport.STDIO,
+                    environment_variables=[],
+                )
+            ],
+            use_count=3,
+            verified=False,
+            source="smithery",
+        )
+        datadog = RegistryServer(
+            name="datadog-mcp",
+            description="Error monitoring and incident alerting integrations.",
+            version="1.0.0",
+            repository_url="https://example.com/datadog",
+            packages=[
+                PackageInfo(
+                    registry_type=RegistryType.NPM,
+                    identifier="datadog-mcp",
+                    version="1.0.0",
+                    transport=Transport.STDIO,
+                    environment_variables=[],
+                )
+            ],
+            use_count=2,
+            verified=False,
+            source="smithery",
+        )
+
+        async def _search_side_effect(query: str, *, limit: int = 30) -> list[RegistryServer]:
+            if query in {"error monitoring", "error"}:
+                return [off_intent]
+            if query == "sentry":
+                return [sentry]
+            if query == "datadog":
+                return [datadog]
+            return []
+
+        ctx.request_context.lifespan_context.registry.search = AsyncMock(
+            side_effect=_search_side_effect
+        )
+
+        results = await search_servers("error monitoring", ctx, evaluate=False, limit=5)
+        names = [r["name"] for r in results]
+
+        assert "sentry-mcp" in names[:2]
+        assert "datadog-mcp" in names[:3]
+        assert names.index("supabase-tooling") > names.index("sentry-mcp")
+        supabase_result = next(r for r in results if r["name"] == "supabase-tooling")
+        assert supabase_result["intent_gate_applied"] is True
+        assert "Off-intent candidate" in supabase_result["intent_match_reason"]
+
 
 # ===================================================================
 # search_servers -- Backward Compatibility (no project_path)
@@ -408,6 +489,7 @@ class TestApplyCompositeScoring:
         assert "composite_breakdown" in ranked[0]
         assert "intent" in ranked[0]["composite_breakdown"]["weights"]
         assert "intent_match_score" in ranked[0]["composite_breakdown"]["signals"]
+        assert "intent_gate_applied" in ranked[0]["composite_breakdown"]["signals"]
         assert ranked[0]["composite_score"] > 0.0
 
     def test_sorts_by_composite_score(self):
