@@ -55,6 +55,7 @@ async def configure_server(
     scope: str = "user",
     project_path: str = "",
     feedback_query_id: str = "",
+    dry_run: bool = False,
 ) -> dict[str, object]:
     """Install an MCP server package, add it to your client config, and verify it works.
 
@@ -73,6 +74,9 @@ async def configure_server(
 
     If validation fails, the config is NOT written to avoid broken entries.
     The user should fix the issue and retry.
+
+    When ``dry_run=True``, mcp-tap performs install + validation preflight but
+    does NOT write any client config, lockfile, or telemetry acceptance event.
 
     Args:
         server_name: Name for this server in the config (e.g. "postgres").
@@ -95,6 +99,8 @@ async def configure_server(
         project_path: Project directory path. Required when scope="project".
         feedback_query_id: Optional query_id from scan/search telemetry event
             so accepted recommendations can be linked to shown rankings.
+        dry_run: When True, run preflight only (install/validate) and return
+            what would be written without touching client config files.
 
     Returns:
         Result with: success, install_status, config_written, validation_passed,
@@ -155,24 +161,40 @@ async def configure_server(
                 server_name, package_identifier, timeout_seconds=10
             )
 
-            # Write per-client config: native HTTP for capable clients, mcp-remote for others
-            if len(locations) == 1:
-                result = await _configure_http_single(
-                    server_name,
-                    package_identifier,
-                    env,
-                    locations[0],
-                    registry_type,
-                    ctx,
-                    http_result,
+            if dry_run:
+                result = _build_http_dry_run_result(
+                    server_name=server_name,
+                    url=package_identifier,
+                    env=env,
+                    locations=locations,
+                    registry_type=registry_type,
+                    http_result=http_result,
                 )
             else:
-                result = await _configure_http_multi(
-                    server_name, package_identifier, env, locations, registry_type, ctx, http_result
-                )
+                # Write per-client config: native HTTP for capable clients, mcp-remote for others
+                if len(locations) == 1:
+                    result = await _configure_http_single(
+                        server_name,
+                        package_identifier,
+                        env,
+                        locations[0],
+                        registry_type,
+                        ctx,
+                        http_result,
+                    )
+                else:
+                    result = await _configure_http_multi(
+                        server_name,
+                        package_identifier,
+                        env,
+                        locations,
+                        registry_type,
+                        ctx,
+                        http_result,
+                    )
 
             # Lockfile update: store canonical HTTP form regardless of per-client format
-            if project_path and result.get("success"):
+            if project_path and result.get("success") and not dry_run:
                 _update_lockfile(
                     project_path=project_path,
                     server_name=server_name,
@@ -183,7 +205,7 @@ async def configure_server(
                     tools=[],
                 )
 
-            if result.get("success"):
+            if result.get("success") and not dry_run:
                 _emit_feedback_accepted(
                     server_name=server_name,
                     feedback_query_id=feedback_query_id,
@@ -245,28 +267,48 @@ async def configure_server(
                 )
             )
 
-        # Step 4: Write config to each target client
-        if len(locations) == 1:
-            result = await _configure_single(
-                server_name,
-                server_config,
-                locations[0],
-                ctx,
-                app.connection_tester,
-                app.healing,
-            )
+        if dry_run:
+            if len(locations) == 1:
+                result = await _preflight_single(
+                    server_name,
+                    server_config,
+                    locations[0],
+                    ctx,
+                    app.connection_tester,
+                    app.healing,
+                )
+            else:
+                result = await _preflight_multi(
+                    server_name,
+                    server_config,
+                    locations,
+                    ctx,
+                    app.connection_tester,
+                    app.healing,
+                )
         else:
-            result = await _configure_multi(
-                server_name,
-                server_config,
-                locations,
-                ctx,
-                app.connection_tester,
-                app.healing,
-            )
+            # Step 4: Write config to each target client
+            if len(locations) == 1:
+                result = await _configure_single(
+                    server_name,
+                    server_config,
+                    locations[0],
+                    ctx,
+                    app.connection_tester,
+                    app.healing,
+                )
+            else:
+                result = await _configure_multi(
+                    server_name,
+                    server_config,
+                    locations,
+                    ctx,
+                    app.connection_tester,
+                    app.healing,
+                )
 
         # Step 5: Update lockfile if project_path is available
-        if project_path and result.get("success"):
+        if project_path and result.get("success") and not dry_run:
             _update_lockfile(
                 project_path=project_path,
                 server_name=server_name,
@@ -277,7 +319,7 @@ async def configure_server(
                 tools=result.get("tools_discovered", []),
             )
 
-        if result.get("success"):
+        if result.get("success") and not dry_run:
             _emit_feedback_accepted(
                 server_name=server_name,
                 feedback_query_id=feedback_query_id,
@@ -629,6 +671,164 @@ async def _configure_http_multi(
         )
     )
     result["per_client_results"] = per_client
+    return result
+
+
+def _build_http_dry_run_result(
+    *,
+    server_name: str,
+    url: str,
+    env: dict[str, str],
+    locations: list[ConfigLocation],
+    registry_type: str,
+    http_result: ConnectionTestResult,
+) -> dict[str, object]:
+    """Build dry-run preview for HTTP servers without writing any config files."""
+    per_client: list[dict[str, object]] = []
+    for loc in locations:
+        preview = _build_http_server_config_for_location(url, env, loc, registry_type).to_dict()
+        per_client.append(
+            {
+                "client": loc.client.value,
+                "scope": loc.scope,
+                "config_file": loc.path,
+                "success": http_result.success,
+                "config_preview": preview,
+            }
+        )
+
+    preview_config = per_client[0]["config_preview"] if per_client else {}
+    message = (
+        f"Dry-run preflight for '{server_name}' completed. "
+        "No config file was written."
+    )
+    if http_result.error:
+        message += f" Reachability result: {http_result.error}"
+
+    result = asdict(
+        ConfigureResult(
+            success=http_result.success,
+            server_name=server_name,
+            config_file=", ".join(loc.path for loc in locations),
+            message=message,
+            config_written=preview_config,
+            install_status="dry_run",
+            tools_discovered=[],
+            validation_passed=http_result.success,
+        )
+    )
+    if len(per_client) > 1:
+        result["per_client_results"] = per_client
+    result["dry_run"] = True
+    return result
+
+
+async def _preflight_single(
+    server_name: str,
+    server_config: ServerConfig,
+    location: ConfigLocation,
+    ctx: Context,
+    connection_tester: ConnectionTesterPort,
+    healing: HealingOrchestratorPort,
+) -> dict[str, object]:
+    """Run install/validation preflight for one client without writing config."""
+    tools_discovered, validation_passed, tool_summary, test_result = await _validate(
+        server_name, server_config, ctx, connection_tester
+    )
+
+    healing_info: dict[str, object] = {}
+    effective_config = server_config
+    if not validation_passed:
+        healed, effective_config, healing_info = await _try_heal(
+            server_name, server_config, test_result, ctx, healing
+        )
+        if healed:
+            validation_passed = True
+            last_attempt = healing_info.get("attempts_count", 0)
+            tool_summary = (
+                f" Healed after {last_attempt} attempt(s)."
+                " Server is working. See healing details for more info."
+            )
+
+    result = asdict(
+        ConfigureResult(
+            success=validation_passed,
+            server_name=server_name,
+            config_file=location.path,
+            message=(
+                f"Dry-run preflight for '{server_name}' finished."
+                f"{tool_summary} Config was NOT written."
+            ),
+            config_written=effective_config.to_dict(),
+            install_status="dry_run",
+            tools_discovered=tools_discovered,
+            validation_passed=validation_passed,
+        )
+    )
+    if healing_info:
+        result["healing"] = healing_info
+    result["dry_run"] = True
+    return result
+
+
+async def _preflight_multi(
+    server_name: str,
+    server_config: ServerConfig,
+    locations: list[ConfigLocation],
+    ctx: Context,
+    connection_tester: ConnectionTesterPort,
+    healing: HealingOrchestratorPort,
+) -> dict[str, object]:
+    """Run install/validation preflight for multiple clients without writing config."""
+    tools_discovered, validation_passed, tool_summary, test_result = await _validate(
+        server_name, server_config, ctx, connection_tester
+    )
+
+    healing_info: dict[str, object] = {}
+    effective_config = server_config
+    if not validation_passed:
+        healed, effective_config, healing_info = await _try_heal(
+            server_name, server_config, test_result, ctx, healing
+        )
+        if healed:
+            validation_passed = True
+            last_attempt = healing_info.get("attempts_count", 0)
+            tool_summary = (
+                f" Healed after {last_attempt} attempt(s)."
+                " Server is working. See healing details for more info."
+            )
+
+    preview = effective_config.to_dict()
+    per_client = [
+        {
+            "client": loc.client.value,
+            "scope": loc.scope,
+            "config_file": loc.path,
+            "success": validation_passed,
+            "config_preview": preview,
+        }
+        for loc in locations
+    ]
+
+    result = asdict(
+        ConfigureResult(
+            success=validation_passed,
+            server_name=server_name,
+            config_file=", ".join(loc.path for loc in locations),
+            message=(
+                f"Dry-run preflight for '{server_name}' on {len(locations)} clients finished."
+                f"{tool_summary} Config was NOT written."
+            ),
+            config_written=preview,
+            install_status="dry_run",
+            tools_discovered=tools_discovered,
+            validation_passed=validation_passed,
+        )
+    )
+    result["per_client_results"] = per_client
+    if healing_info:
+        result["healing"] = healing_info
+    result["dry_run"] = True
     return result
 
 

@@ -1,62 +1,49 @@
-# Supply Chain Attestation And Lockfile Signing
+# Lockfile Integrity MVP (Minimal Supply-Chain Hardening)
 
 - **Date**: 2026-02-24
 - **Issue**: #100
 - **Status**: `open`
 - **Branch**: `feature/2026-02-24-enterprise-roadmap-issues`
-- **Priority**: `critical`
+- **Priority**: `medium`
 
 ## Problem
 
-`mcp-tap.lock` ensures reproducibility, but it does not yet provide cryptographic trust on
-artifact provenance by default. Enterprise environments need verifiable supply chain guarantees.
+`mcp-tap.lock` is reproducible but does not provide optional cryptographic integrity checks.
 
 ## Context
 
-- Current lockfile capabilities:
-  - canonical server identity
-  - drift detection and restore
-- Missing capabilities:
-  - lockfile signature verification
-  - attestation/provenance verification before restore/configure in strict mode
-- Context7 references considered:
-  - in-toto verification CLI/API practices for signed metadata validation.
+- Current baseline already includes security gate and drift verification.
+- Full SBOM/attestation pipeline is too heavy for current project stage.
 
 ## Root Cause
 
-Integrity and provenance are not enforced as first-class constraints in install/restore flows.
-There is no strict policy boundary to block untrusted artifact state.
+The original proposal was enterprise-grade from day one.
 
 ## Solution
 
-Add signing and verification pipeline for lockfiles and release attestations.
+Re-scoped to a **minimal local MVP**:
 
-### Phase 1 (MVP)
+1. Add optional lockfile signature command (`sign-lockfile` style utility).
+2. Add optional verify command/check (`verify-lockfile-signature`).
+3. Add strict opt-in flag for `restore`/`configure` to require valid signature.
+4. Keep default behavior unchanged (non-strict remains current flow).
 
-1. Lockfile signature block schema:
-   - signer id, algorithm, timestamp, signature value.
-2. Local verification command and strict mode integration.
-3. Strict enforcement path in `configure_server` and `restore`.
-4. Machine-readable verification report output.
-
-### Phase 2
-
-- Policy enforcement integration (enforce signed-only for selected scopes).
-- Provenance trust store and key rotation workflow.
+Out of scope for this issue:
+- SBOM generation
+- in-toto/SLSA end-to-end provenance platform
+- remote trust-store service
 
 ## Files Changed
 
-- `docs/issues/2026-02-24_100_supply-chain-attestation.md` — tracking spec for implementation
+- `docs/issues/2026-02-24_100_supply-chain-attestation.md` — reduced to MVP scope.
 
 ## Verification
 
-- [ ] Tests pass: `uv run pytest tests/ -q`
+- [ ] Tests pass: `uv run pytest tests/`
 - [ ] Linter passes: `uv run ruff check src/ tests/`
-- [ ] Tampered lockfile signatures are detected and blocked in strict mode
-- [ ] Missing/invalid provenance blocks strict-mode restore/configure
-- [ ] Verification report includes signer, claims checked, and failure reason
-- [ ] Backward compatibility: non-strict mode behavior preserved
+- [ ] Invalid signature is blocked in strict mode
+- [ ] Non-strict mode remains backward compatible
 
 ## Lessons Learned
 
-(Complete after implementation)
+Security improvements should be incremental and opt-in by default.

@@ -5,12 +5,14 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-from dataclasses import dataclass, replace
+import time
+from dataclasses import dataclass, field, replace
 
 from mcp_tap.models import RegistryServer
 from mcp_tap.registry.base import RegistryClientPort
 
 logger = logging.getLogger(__name__)
+_DEFAULT_CACHE_TTL_SECONDS = 900
 
 _GITHUB_URL_RE = re.compile(
     r"https?://github\.com/([^/]+)/([^/]+?)(?:\.git)?(?:/.*)?$",
@@ -44,6 +46,14 @@ class AggregatedRegistry:
 
     official: RegistryClientPort
     smithery: RegistryClientPort
+    cache_ttl_seconds: int = _DEFAULT_CACHE_TTL_SECONDS
+    _search_cache: dict[str, tuple[float, list[RegistryServer]]] = field(
+        default_factory=dict,
+        init=False,
+        repr=False,
+    )
+    last_search_used_cache: bool = field(default=False, init=False)
+    last_search_cache_age_seconds: int | None = field(default=None, init=False)
 
     async def search(self, query: str, *, limit: int = 30) -> list[RegistryServer]:
         """Search both registries in parallel, deduplicate, and merge signals.
@@ -56,6 +66,10 @@ class AggregatedRegistry:
             Deduplicated list of ``RegistryServer`` ordered by provenance
             (``both`` first, then ``official``, then ``smithery``).
         """
+        self.last_search_used_cache = False
+        self.last_search_cache_age_seconds = None
+        cache_key = query.strip().lower()
+
         official_task = self.official.search(query, limit=limit)
         smithery_task = self.smithery.search(query, limit=limit)
 
@@ -63,20 +77,62 @@ class AggregatedRegistry:
 
         official_results: list[RegistryServer] = []
         smithery_results: list[RegistryServer] = []
+        had_error = False
 
         if isinstance(results[0], BaseException):
             logger.warning("Official registry search failed: %s", results[0])
+            had_error = True
         else:
             official_results = results[0]
 
         if isinstance(results[1], BaseException):
             logger.warning("Smithery registry search failed: %s", results[1])
+            had_error = True
         else:
             smithery_results = results[1]
 
         merged = _merge_results(official_results, smithery_results)
         merged.sort(key=_sort_key)
-        return merged[:limit]
+        limited = merged[:limit]
+        if limited:
+            self._cache_set(cache_key, limited)
+            return limited
+
+        if had_error:
+            cached = self._cache_get(cache_key)
+            if cached is not None:
+                cached_results, cache_age_seconds = cached
+                logger.warning(
+                    "Returning cached registry results for query '%s' (age=%ss)",
+                    query,
+                    cache_age_seconds,
+                )
+                self.last_search_used_cache = True
+                self.last_search_cache_age_seconds = cache_age_seconds
+                return cached_results[:limit]
+
+        return []
+
+    def _cache_get(self, key: str) -> tuple[list[RegistryServer], int] | None:
+        """Return cached search results and cache age in seconds, or None."""
+        if not key:
+            return None
+        cached_entry = self._search_cache.get(key)
+        if cached_entry is None:
+            return None
+
+        cached_at, cached_results = cached_entry
+        age_seconds = int(max(0.0, time.monotonic() - cached_at))
+        if age_seconds > self.cache_ttl_seconds:
+            self._search_cache.pop(key, None)
+            return None
+        return list(cached_results), age_seconds
+
+    def _cache_set(self, key: str, results: list[RegistryServer]) -> None:
+        """Store successful search results for fallback during transient outages."""
+        if not key or not results:
+            return
+        self._search_cache[key] = (time.monotonic(), list(results))
 
     async def get_server(self, name: str) -> RegistryServer | None:
         """Fetch a server by name, trying official registry first.

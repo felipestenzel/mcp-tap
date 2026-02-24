@@ -1800,3 +1800,127 @@ class TestConfigureHttpNative:
         config_written = result["config_written"]
         assert config_written["type"] == "http"
         assert config_written["url"] == "https://mcp.example.com"
+
+
+# ═══════════════════════════════════════════════════════════════
+# Dry-run Preflight Tests
+# ═══════════════════════════════════════════════════════════════
+
+
+class TestConfigureDryRun:
+    """Tests for configure_server dry-run preflight mode."""
+
+    @patch("mcp_tap.tools.configure.emit_recommendation_decision")
+    @patch("mcp_tap.tools.configure._update_lockfile")
+    @patch("mcp_tap.tools.configure.write_server_config")
+    @patch("mcp_tap.tools.configure.resolve_config_locations")
+    async def test_stdio_dry_run_validates_without_writing(
+        self,
+        mock_locations: MagicMock,
+        mock_write: MagicMock,
+        mock_update_lockfile: MagicMock,
+        mock_emit: MagicMock,
+    ):
+        """Dry-run should validate without writing files or emitting accepted telemetry."""
+        mock_locations.return_value = [_fake_location(path="/tmp/claude.json")]
+
+        installer_resolver = AsyncMock()
+        installer_resolver.resolve_installer = AsyncMock(return_value=_mock_installer())
+        connection_tester = AsyncMock()
+        connection_tester.test_server_connection = AsyncMock(
+            return_value=_ok_connection_result("pg")
+        )
+        ctx = _make_ctx(
+            installer_resolver=installer_resolver,
+            connection_tester=connection_tester,
+        )
+
+        result = await configure_server(
+            server_name="pg",
+            package_identifier="@modelcontextprotocol/server-postgres",
+            ctx=ctx,
+            clients="claude_code",
+            project_path="/tmp/project",
+            feedback_query_id="qry-1",
+            dry_run=True,
+        )
+
+        assert result["success"] is True
+        assert result["dry_run"] is True
+        assert result["install_status"] == "dry_run"
+        assert result["validation_passed"] is True
+        assert result["config_file"] == "/tmp/claude.json"
+        mock_write.assert_not_called()
+        mock_update_lockfile.assert_not_called()
+        mock_emit.assert_not_called()
+
+    @patch("mcp_tap.tools.configure._update_lockfile")
+    @patch("mcp_tap.tools.configure.write_server_config")
+    @patch("mcp_tap.tools.configure.resolve_config_locations")
+    async def test_http_dry_run_returns_config_preview_without_writing(
+        self,
+        mock_locations: MagicMock,
+        mock_write: MagicMock,
+        mock_update_lockfile: MagicMock,
+    ):
+        """HTTP dry-run should return config preview and skip all writes."""
+        mock_locations.return_value = [_fake_location(MCPClient.CLAUDE_CODE, "/tmp/claude.json")]
+
+        http_reachability = AsyncMock()
+        http_reachability.check_reachability = AsyncMock(
+            return_value=_ok_connection_result("vercel")
+        )
+        ctx = _make_ctx(http_reachability=http_reachability)
+
+        result = await configure_server(
+            server_name="vercel",
+            package_identifier="https://mcp.vercel.com",
+            ctx=ctx,
+            clients="claude_code",
+            project_path="/tmp/project",
+            dry_run=True,
+        )
+
+        assert result["success"] is True
+        assert result["dry_run"] is True
+        assert result["install_status"] == "dry_run"
+        assert result["config_file"] == "/tmp/claude.json"
+        assert result["config_written"]["type"] == "http"
+        assert result["config_written"]["url"] == "https://mcp.vercel.com"
+        mock_write.assert_not_called()
+        mock_update_lockfile.assert_not_called()
+
+    @patch("mcp_tap.tools.configure.write_server_config")
+    @patch("mcp_tap.tools.configure.resolve_config_locations")
+    async def test_stdio_dry_run_returns_failure_when_validation_fails(
+        self,
+        mock_locations: MagicMock,
+        mock_write: MagicMock,
+    ):
+        """Dry-run should fail when preflight validation fails and avoid writes."""
+        mock_locations.return_value = [_fake_location(path="/tmp/claude.json")]
+
+        installer_resolver = AsyncMock()
+        installer_resolver.resolve_installer = AsyncMock(return_value=_mock_installer())
+        connection_tester = AsyncMock()
+        connection_tester.test_server_connection = AsyncMock(
+            return_value=_failed_connection_result("pg", "timeout")
+        )
+        ctx = _make_ctx(
+            installer_resolver=installer_resolver,
+            connection_tester=connection_tester,
+        )
+
+        result = await configure_server(
+            server_name="pg",
+            package_identifier="@modelcontextprotocol/server-postgres",
+            ctx=ctx,
+            clients="claude_code",
+            dry_run=True,
+        )
+
+        assert result["success"] is False
+        assert result["dry_run"] is True
+        assert result["install_status"] == "dry_run"
+        assert result["validation_passed"] is False
+        mock_write.assert_not_called()

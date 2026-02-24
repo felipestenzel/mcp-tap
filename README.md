@@ -138,8 +138,8 @@ Or use `npx` — replace `"command": "uvx", "args": ["mcp-tap"]` with `"command"
 | Tool | What it does |
 |------|-------------|
 | `scan_project` | Scans your project directory — detects languages, frameworks, databases, CI/CD pipelines — and recommends MCP servers |
-| `search_servers` | Searches the MCP Registry with semantic intent rerank (`intent_match_score`), maturity scoring, and project relevance ranking |
-| `configure_server` | Installs a package (npm/pip/docker), runs a security gate, validates the connection, and writes config |
+| `search_servers` | Searches the MCP Registry with semantic intent rerank (`intent_match_score`), maturity scoring, project relevance ranking, and cache fallback metadata during outages |
+| `configure_server` | Installs a package (npm/pip/docker), runs a security gate, validates the connection, writes config, and supports `dry_run` preflight (no writes) |
 | `test_connection` | Spawns a server process, connects via MCP protocol, and lists its tools. Auto-heals on failure |
 | `check_health` | Tests all configured servers concurrently, detects tool conflicts between servers |
 | `inspect_server` | Fetches a server's README and extracts configuration hints |
@@ -165,6 +165,8 @@ Plus automatic lockfile management on every configure/remove.
 - **Recommendation quality gate**: Offline benchmark (`precision@k`, `acceptance_rate`) keeps recommendation quality stable in CI
 - **Production feedback loop (opt-in)**: Privacy-safe telemetry (`recommendations_shown`, accepted/rejected/ignored) with version-segmented quality trends
 - **Semantic rerank**: Broad queries (for example `error monitoring`) are reranked by intent match, not only popularity
+- **Offline-friendly search fallback**: Uses recent cached registry results when live providers fail, with explicit staleness metadata
+- **Configure preflight**: `configure_server(dry_run=true)` validates install/connectivity without writing client config
 
 ## Requirements
 

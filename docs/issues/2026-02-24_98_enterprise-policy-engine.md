@@ -4,70 +4,40 @@
 - **Issue**: #98
 - **Status**: `open`
 - **Branch**: `feature/2026-02-24-enterprise-roadmap-issues`
-- **Priority**: `critical`
+- **Priority**: `low`
 
 ## Problem
 
-mcp-tap applies one global behavior for all clients and projects. There is no policy-as-code
-layer to control whether a given operation is allowed, denied, or only audited.
-
-This blocks enterprise adoption where teams need deterministic governance for:
-- which MCP servers can be configured
-- which operations are allowed per client/scope
-- auditable decision logs for compliance and incident response
+There is no policy-as-code layer to allow/deny operations by client/server/scope.
 
 ## Context
 
-- Affected modules:
-  - `src/mcp_tap/tools/configure.py`
-  - `src/mcp_tap/tools/remove.py`
-  - `src/mcp_tap/tools/restore.py`
-  - `src/mcp_tap/tools/stack.py`
-- Current security gate evaluates package risk, but not organization policy intent.
-- Context7 references considered for hardening patterns:
-  - OPA policy deployment + decision logging patterns.
+- Current controls are package-risk oriented (`security/gate.py`), not organization policy.
+- mcp-tap has no confirmed enterprise tenant requiring this right now.
+- Immediate product bottleneck is adoption/distribution, not org governance.
 
 ## Root Cause
 
-Authorization/governance concerns are not modeled as a first-class decision boundary.
-Rules are implicit in tool logic instead of declarative policy evaluated per request.
+This was designed for a future enterprise persona before validated demand.
 
 ## Solution
 
-Implement a policy engine with deterministic `allow` / `deny` / `audit` outcomes.
+Decision on 2026-02-24: **deferred to icebox** until there is explicit demand from real users.
 
-### Phase 1 (MVP)
-
-1. Introduce policy file format v1 (`.mcp-tap.policy.yaml`):
-   - Rule id, matchers, effect, reason, precedence.
-2. Add evaluator pipeline:
-   - Normalize request context (operation, client, project fingerprint, server identity).
-   - Evaluate rules with deterministic precedence (deny > allow > audit).
-3. Integrate checks in destructive/critical operations:
-   - `configure_server`, `remove_server`, `restore`, `apply_stack`.
-4. Add decision logging (JSONL):
-   - Include matched rule id, effect, reason code, request fingerprint.
-5. Add rollout modes:
-   - `audit-only`, `warn`, `enforce (fail-closed)`.
-
-### Phase 2
-
-- Policy bundles and signed distribution integration.
-- Per-team overrides and scoped policy inheritance.
+Exit criteria to reopen:
+1. At least one team with multi-project governance requirement.
+2. Concrete allow/deny policy examples from users.
+3. Clear scope that can ship as a local-first MVP (file policy only).
 
 ## Files Changed
 
-- `docs/issues/2026-02-24_98_enterprise-policy-engine.md` — tracking spec for implementation
+- `docs/issues/2026-02-24_98_enterprise-policy-engine.md` — scope reduced and moved to icebox.
 
 ## Verification
 
-- [ ] Tests pass: `uv run pytest tests/ -q`
-- [ ] Linter passes: `uv run ruff check src/ tests/`
-- [ ] Rule precedence is deterministic and covered by tests
-- [ ] Denied operations are blocked with explicit, actionable errors
-- [ ] Decision logs contain rule id and request fingerprint
-- [ ] Fail-closed behavior verified for invalid policy in enforce mode
+- [x] Deferred decision documented.
+- [x] Reopen criteria documented.
 
 ## Lessons Learned
 
-(Complete after implementation)
+Validate persona demand before building governance infrastructure.

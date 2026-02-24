@@ -4,58 +4,40 @@
 - **Issue**: #99
 - **Status**: `open`
 - **Branch**: `feature/2026-02-24-enterprise-roadmap-issues`
-- **Priority**: `high`
+- **Priority**: `low`
 
 ## Problem
 
-Search ranking is strong but uses static deterministic weights. Over time, real usage may diverge
-from offline assumptions, and quality regressions can pass unnoticed between releases.
+Ranking weights are static and do not auto-adjust from production outcomes.
 
 ## Context
 
-- Existing strengths:
-  - semantic intent scoring in `tools/search.py`
-  - deterministic composite ranking
-  - offline benchmark gate (`benchmark/recommendation.py`)
-  - opt-in production telemetry (`benchmark/production_feedback.py`)
-- Missing: controlled mechanism to tune weights from real outcomes while keeping deterministic safety.
+- Deterministic composite scoring already exists in `src/mcp_tap/tools/search.py`.
+- Offline quality gate already exists in `src/mcp_tap/benchmark/recommendation.py`.
+- There is not enough real-user telemetry volume to safely tune weights yet.
 
 ## Root Cause
 
-The quality loop currently ends at fixed-weight evaluation. Production feedback is collected but not
-used to generate and safely promote improved ranking artifacts.
+Adaptive loop assumes production-scale data that the project does not currently have.
 
 ## Solution
 
-Create a reproducible adaptive ranking pipeline with strict guardrails.
+Decision on 2026-02-24: **deferred to icebox**.
 
-### Phase 1 (MVP)
-
-1. Add versioned weight artifact (`ranking_weights_vN.json`).
-2. Build offline optimizer using production feedback replay.
-3. Compare baseline vs candidate via holdout replay.
-4. Add canary rollout mode for candidate weights.
-5. Auto-rollback when acceptance@k drops past threshold.
-
-### Guardrails
-
-- Deterministic fallback to default weights on any anomaly.
-- Minimum sample size before any weight update.
-- Full audit metadata: dataset window, metrics, chosen artifact, rollback reason.
+Keep current deterministic ranking and benchmark gate. Reopen only when:
+1. There is sustained external usage with representative feedback volume.
+2. A stable telemetry schema is adopted by users.
+3. A replay dataset can be versioned without privacy risk.
 
 ## Files Changed
 
-- `docs/issues/2026-02-24_99_adaptive-ranking-loop.md` — tracking spec for implementation
+- `docs/issues/2026-02-24_99_adaptive-ranking-loop.md` — scope reduced and moved to icebox.
 
 ## Verification
 
-- [ ] Tests pass: `uv run pytest tests/ -q`
-- [ ] Linter passes: `uv run ruff check src/ tests/`
-- [ ] Same dataset -> same optimized weights (reproducibility)
-- [ ] Candidate weights pass replay quality gate before rollout
-- [ ] Canary + rollback logic covered with deterministic tests
-- [ ] Ranking remains deterministic for fixed weight artifact
+- [x] Deferred decision documented.
+- [x] Existing deterministic path acknowledged as current baseline.
 
 ## Lessons Learned
 
-(Complete after implementation)
+Do not add adaptive systems without enough signal quality and volume.

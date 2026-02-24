@@ -1,55 +1,46 @@
-# Canary Rollout And Automatic Rollback For Configuration Changes
+# Safe Rollback MVP For Configuration Changes
 
 - **Date**: 2026-02-24
 - **Issue**: #103
 - **Status**: `open`
 - **Branch**: `feature/2026-02-24-enterprise-roadmap-issues`
-- **Priority**: `high`
+- **Priority**: `medium`
 
 ## Problem
 
-Destructive operations are validated but still apply directly once approved. Fleet-scale rollouts
-need safer staged rollout and deterministic rollback when quality degrades.
+`configure_server` changes config directly once pre-checks pass. There is no simple local rollback
+artifact produced automatically before writes.
 
 ## Context
 
-- Existing safety: connection validation, security gate, lockfile drift checks.
-- Missing: staged rollout orchestration and automatic rollback policy.
+- Fleet-scale canary orchestration is out of scope for the current product stage.
+- A local snapshot/rollback primitive delivers most of the safety value with low complexity.
 
 ## Root Cause
 
-No rollout state machine exists (snapshot -> canary -> evaluate -> promote/rollback).
+Original issue proposed fleet deployment semantics instead of local CLI safety primitives.
 
 ## Solution
 
-Implement snapshot-based canary rollout with policy-driven auto-rollback.
+Re-scoped to a **local rollback MVP**:
 
-### Phase 1 (MVP)
-
-1. Create atomic pre-change snapshots (config + lockfile + metadata).
-2. Apply changes to canary subset first.
-3. Evaluate health/drift/failure thresholds.
-4. Promote or rollback automatically.
-5. Keep rollback idempotent and auditable.
-
-### Phase 2
-
-- Retention policy for snapshots.
-- Organization-level rollout templates.
+1. Before destructive config writes, save snapshot of affected config + lockfile metadata.
+2. Expose a simple rollback command that restores the last snapshot.
+3. Keep snapshot retention bounded and deterministic.
+4. No fleet rollout channels, no canary orchestration, no remote controller.
 
 ## Files Changed
 
-- `docs/issues/2026-02-24_103_canary-auto-rollback.md` — tracking spec for implementation
+- `docs/issues/2026-02-24_103_canary-auto-rollback.md` — reduced to local MVP scope.
 
 ## Verification
 
-- [ ] Tests pass: `uv run pytest tests/ -q`
+- [ ] Tests pass: `uv run pytest tests/`
 - [ ] Linter passes: `uv run ruff check src/ tests/`
-- [ ] Every destructive change records reversible snapshot
-- [ ] Canary subset application is deterministic
-- [ ] Auto-rollback triggers reliably on threshold breach
-- [ ] Rollback restores both config and lockfile state
+- [ ] Snapshot exists before write
+- [ ] Rollback restores config and lockfile state
+- [ ] Snapshot cleanup policy tested
 
 ## Lessons Learned
 
-(Complete after implementation)
+For a local-first CLI, prioritize reversible local operations over fleet workflows.

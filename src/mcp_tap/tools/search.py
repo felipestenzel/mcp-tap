@@ -161,6 +161,8 @@ async def search_servers(
         registry = app.registry
 
         servers = await _search_with_query_expansion(registry, query, limit)
+        cache_used = bool(getattr(registry, "last_search_used_cache", False))
+        cache_age = getattr(registry, "last_search_cache_age_seconds", None)
 
         results: list[dict[str, object]] = []
         seen_entries: set[tuple[str, str, str]] = set()
@@ -198,6 +200,10 @@ async def search_servers(
                     result["use_count"] = server.use_count
                 if server.verified is not None:
                     result["verified"] = server.verified
+                if cache_used:
+                    result["cache_status"] = "stale_fallback"
+                    if isinstance(cache_age, int):
+                        result["cache_age_seconds"] = cache_age
                 results.append(result)
 
         # Apply context-aware scoring when a project path is provided
