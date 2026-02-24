@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+import re
 from dataclasses import asdict
 
 from mcp.server.fastmcp import Context
@@ -41,13 +42,43 @@ _CREDENTIAL_SCORE: dict[str, float] = {
 
 _DEFAULT_RELEVANCE_SCORE = 0.4
 _DEFAULT_CREDENTIAL_SCORE = 0.4
+_DEFAULT_INTENT_SCORE = 0.4
+
+_TOKEN_RE = re.compile(r"[a-z0-9]+")
+_STOPWORDS: frozenset[str] = frozenset(
+    {
+        "a",
+        "an",
+        "and",
+        "any",
+        "for",
+        "in",
+        "is",
+        "of",
+        "on",
+        "or",
+        "the",
+        "to",
+        "with",
+    }
+)
+
+_MAX_EXPANDED_QUERIES = 5
+_MAX_TOKEN_QUERIES = 2
+_MAX_PROVIDER_QUERIES = 3
+
+_INTENT_PROVIDER_HINTS: dict[str, tuple[str, ...]] = {
+    "error_monitoring": ("sentry", "datadog", "newrelic", "rollbar", "bugsnag"),
+    "incident_management": ("pagerduty", "opsgenie", "victorops"),
+}
 
 _COMPOSITE_WEIGHTS: dict[str, float] = {
-    "relevance": 0.35,
-    "maturity": 0.30,
-    "verified": 0.15,
-    "use_count": 0.10,
-    "credential": 0.10,
+    "intent": 0.35,
+    "relevance": 0.25,
+    "maturity": 0.20,
+    "verified": 0.08,
+    "use_count": 0.07,
+    "credential": 0.05,
 }
 
 
@@ -88,7 +119,8 @@ async def search_servers(
         "smithery" | "both"). When project_path is set, also includes
         relevance, match_reason, and credential_status. When evaluate is
         True, also includes maturity. All results include deterministic
-        ranking metadata: composite_score and composite_breakdown.
+        ranking metadata: intent_match_score, intent_match_reason,
+        composite_score, and composite_breakdown.
         Smithery results also include
         use_count (popularity) and verified (quality badge).
     """
@@ -96,11 +128,17 @@ async def search_servers(
         app = get_context(ctx)
         registry = app.registry
 
-        servers = await registry.search(query, limit=min(limit, 50))
+        servers = await _search_with_query_expansion(registry, query, limit)
 
         results: list[dict[str, object]] = []
+        seen_entries: set[tuple[str, str, str]] = set()
         for server in servers:
             for pkg in server.packages:
+                entry_key = (server.name.lower(), pkg.identifier, pkg.transport.value)
+                if entry_key in seen_entries:
+                    continue
+                seen_entries.add(entry_key)
+
                 transport = pkg.transport.value
                 result: dict[str, object] = asdict(
                     SearchResult(
@@ -129,10 +167,6 @@ async def search_servers(
                 if server.verified is not None:
                     result["verified"] = server.verified
                 results.append(result)
-                if len(results) >= limit:
-                    break
-            if len(results) >= limit:
-                break
 
         # Apply context-aware scoring when a project path is provided
         profile: ProjectProfile | None = None
@@ -145,10 +179,13 @@ async def search_servers(
         if evaluate:
             results = await _apply_maturity(results, app.github_metadata)
 
+        # Apply query intent routing score to reduce semantic noise.
+        results = _apply_intent_scoring(results, query)
+
         # Deterministic composite ranking (relevance + maturity + provenance + credentials)
         results = _apply_composite_scoring(results)
 
-        return results
+        return results[:limit]
     except McpTapError as exc:
         return [{"success": False, "error": str(exc)}]
     except Exception as exc:
@@ -169,6 +206,173 @@ def _serialize_registry_type(
     ):
         return transport
     return registry_type.value
+
+
+def _query_tokens(query: str) -> list[str]:
+    """Normalize and tokenize a query into meaningful lowercase terms."""
+    tokens = _TOKEN_RE.findall(query.lower())
+    return [t for t in tokens if len(t) >= 3 and t not in _STOPWORDS]
+
+
+def _compact_text(value: str) -> str:
+    """Normalize text for loose provider matching (space/punctuation insensitive)."""
+    return "".join(_TOKEN_RE.findall(value.lower()))
+
+
+def _infer_intent_keys(query: str) -> list[str]:
+    """Infer high-level intent classes from a free-text search query."""
+    normalized = " ".join(query.lower().split())
+    tokens = set(_query_tokens(normalized))
+    intents: list[str] = []
+
+    has_error = "error" in tokens or "exception" in tokens or "bug" in tokens
+    has_monitoring = (
+        "monitoring" in tokens
+        or "observability" in tokens
+        or "tracking" in tokens
+        or "alerting" in tokens
+        or "incident" in tokens
+        or "error monitoring" in normalized
+        or "error tracking" in normalized
+    )
+    if has_error and has_monitoring:
+        intents.append("error_monitoring")
+
+    has_incident = (
+        "incident" in tokens or "oncall" in tokens or "on-call" in normalized or "pager" in tokens
+    )
+    if has_incident:
+        intents.append("incident_management")
+
+    return intents
+
+
+def _build_search_queries(query: str) -> list[str]:
+    """Build a small set of query expansions for better semantic coverage."""
+    original = query.strip()
+    if not original:
+        return [query]
+
+    queries: list[str] = [original]
+    tokens = _query_tokens(original)
+
+    low_signal_tokens = {"monitoring", "management", "server", "service", "tool", "tools", "mcp"}
+    token_queries = [t for t in tokens if t not in low_signal_tokens][:_MAX_TOKEN_QUERIES]
+    queries.extend(token_queries)
+
+    provider_queries: list[str] = []
+    for intent in _infer_intent_keys(original):
+        provider_queries.extend(_INTENT_PROVIDER_HINTS.get(intent, ()))
+    queries.extend(provider_queries[:_MAX_PROVIDER_QUERIES])
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for candidate in queries:
+        key = candidate.lower().strip()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        deduped.append(candidate)
+        if len(deduped) >= _MAX_EXPANDED_QUERIES:
+            break
+
+    return deduped
+
+
+async def _search_with_query_expansion(
+    registry: object,
+    query: str,
+    limit: int,
+) -> list[object]:
+    """Run primary + expanded searches and merge unique servers."""
+    queries = _build_search_queries(query)
+    per_query_limit = min(max(limit, 5), 50)
+
+    tasks = [registry.search(q, limit=per_query_limit) for q in queries]
+    fetched = await asyncio.gather(*tasks, return_exceptions=True)
+
+    primary_error: Exception | None = None
+    merged: list[object] = []
+    for index, item in enumerate(fetched):
+        if isinstance(item, Exception):
+            if index == 0:
+                primary_error = item
+            continue
+        merged.extend(item)
+
+    if not merged and primary_error is not None:
+        raise primary_error
+
+    deduped: list[object] = []
+    seen_keys: set[tuple[str, str]] = set()
+    for server in merged:
+        name = str(getattr(server, "name", "")).lower()
+        repository_url = str(getattr(server, "repository_url", "")).lower()
+        key = (name, repository_url)
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        deduped.append(server)
+
+    return deduped
+
+
+def _score_intent_match(
+    result: dict[str, object],
+    query: str,
+    tokens: list[str],
+    provider_hints: set[str],
+) -> tuple[float, str]:
+    """Score how well a result matches the semantic intent of the query."""
+    searchable = f"{result.get('name', '')} {result.get('description', '')}".lower()
+    normalized_query = " ".join(query.lower().split())
+
+    if normalized_query and normalized_query in searchable:
+        return 1.0, "Direct query phrase match"
+
+    if not tokens:
+        return _DEFAULT_INTENT_SCORE, "No semantic tokens extracted"
+
+    matched = [token for token in tokens if token in searchable]
+    coverage = len(matched) / len(tokens)
+
+    searchable_compact = _compact_text(searchable)
+    matched_provider = next(
+        (
+            hint
+            for hint in provider_hints
+            if hint in searchable or _compact_text(hint) in searchable_compact
+        ),
+        "",
+    )
+    if matched_provider and coverage >= 0.5:
+        return 0.95, f"Provider hint match: {matched_provider}"
+    if matched_provider:
+        return 0.90, f"Provider hint match: {matched_provider}"
+    if coverage >= 0.75:
+        return 0.80, "Strong keyword coverage"
+    if coverage >= 0.50:
+        return 0.60, "Partial keyword coverage"
+    if coverage > 0:
+        return 0.35, "Weak keyword coverage"
+    return 0.0, "No intent keyword match"
+
+
+def _apply_intent_scoring(results: list[dict[str, object]], query: str) -> list[dict[str, object]]:
+    """Attach intent-match score and reason for deterministic semantic rerank."""
+    tokens = _query_tokens(query)
+    provider_hints = {
+        hint
+        for intent in _infer_intent_keys(query)
+        for hint in _INTENT_PROVIDER_HINTS.get(intent, ())
+    }
+
+    for result in results:
+        score, reason = _score_intent_match(result, query, tokens, provider_hints)
+        result["intent_match_score"] = round(score, 4)
+        result["intent_match_reason"] = reason
+
+    return results
 
 
 def _apply_project_scoring(
@@ -332,6 +536,14 @@ def _extract_maturity_score(result: dict[str, object]) -> float:
     return max(0.0, min(1.0, float(raw)))
 
 
+def _extract_intent_score(result: dict[str, object]) -> float:
+    """Extract intent match score from a result dict (fallback to default)."""
+    raw = result.get("intent_match_score")
+    if not isinstance(raw, int | float):
+        return _DEFAULT_INTENT_SCORE
+    return max(0.0, min(1.0, float(raw)))
+
+
 def _normalize_use_count(use_count: object) -> float:
     """Normalize Smithery use_count into 0..1 using a log scale."""
     if not isinstance(use_count, int) or use_count <= 0:
@@ -342,6 +554,7 @@ def _normalize_use_count(use_count: object) -> float:
 
 def _compute_composite(result: dict[str, object]) -> tuple[float, dict[str, object]]:
     """Compute deterministic ranking score and detailed breakdown for one result."""
+    intent_score = _extract_intent_score(result)
     relevance_label = str(result.get("relevance", "")).lower()
     relevance_score = _RELEVANCE_SCORE.get(relevance_label, _DEFAULT_RELEVANCE_SCORE)
 
@@ -356,6 +569,7 @@ def _compute_composite(result: dict[str, object]) -> tuple[float, dict[str, obje
     credential_score = _CREDENTIAL_SCORE.get(credential_label, _DEFAULT_CREDENTIAL_SCORE)
 
     contributions = {
+        "intent": round(_COMPOSITE_WEIGHTS["intent"] * intent_score, 4),
         "relevance": round(_COMPOSITE_WEIGHTS["relevance"] * relevance_score, 4),
         "maturity": round(_COMPOSITE_WEIGHTS["maturity"] * maturity_score, 4),
         "verified": round(_COMPOSITE_WEIGHTS["verified"] * verified_score, 4),
@@ -367,6 +581,8 @@ def _compute_composite(result: dict[str, object]) -> tuple[float, dict[str, obje
     breakdown: dict[str, object] = {
         "weights": dict(_COMPOSITE_WEIGHTS),
         "signals": {
+            "intent_match_reason": str(result.get("intent_match_reason", "")),
+            "intent_match_score": round(intent_score, 4),
             "relevance": relevance_label or "unknown",
             "maturity_score": round(maturity_score, 4),
             "verified": bool(result.get("verified") is True),
@@ -374,6 +590,7 @@ def _compute_composite(result: dict[str, object]) -> tuple[float, dict[str, obje
             "credential_status": credential_label or "unknown",
         },
         "normalized": {
+            "intent": round(intent_score, 4),
             "relevance": round(relevance_score, 4),
             "maturity": round(maturity_score, 4),
             "verified": round(verified_score, 4),
@@ -395,10 +612,13 @@ def _apply_composite_scoring(results: list[dict[str, object]]) -> list[dict[str,
         result["composite_breakdown"] = breakdown
         indexed.append((index, result))
 
-    def _sort_key(item: tuple[int, dict[str, object]]) -> tuple[float, int, float, int, str, int]:
+    def _sort_key(
+        item: tuple[int, dict[str, object]],
+    ) -> tuple[float, float, int, float, int, str, int]:
         idx, result = item
         return (
             -float(result.get("composite_score", 0.0)),
+            -_extract_intent_score(result),
             relevance_sort_key(str(result.get("relevance", ""))),
             -_extract_maturity_score(result),
             -int(result.get("use_count", 0) if isinstance(result.get("use_count"), int) else 0),

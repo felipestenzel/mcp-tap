@@ -138,7 +138,7 @@ Or use `npx` — replace `"command": "uvx", "args": ["mcp-tap"]` with `"command"
 | Tool | What it does |
 |------|-------------|
 | `scan_project` | Scans your project directory — detects languages, frameworks, databases, CI/CD pipelines — and recommends MCP servers |
-| `search_servers` | Searches the MCP Registry by keyword, with maturity scoring and project relevance ranking |
+| `search_servers` | Searches the MCP Registry with semantic intent rerank (`intent_match_score`), maturity scoring, and project relevance ranking |
 | `configure_server` | Installs a package (npm/pip/docker), runs a security gate, validates the connection, and writes config |
 | `test_connection` | Spawns a server process, connects via MCP protocol, and lists its tools. Auto-heals on failure |
 | `check_health` | Tests all configured servers concurrently, detects tool conflicts between servers |
@@ -163,6 +163,7 @@ Plus automatic lockfile management on every configure/remove.
 - **Connection validation**: Every install is verified with a real MCP connection test
 - **Secrets masked**: `list_installed` never exposes environment variable values
 - **Recommendation quality gate**: Offline benchmark (`precision@k`, `acceptance_rate`) keeps recommendation quality stable in CI
+- **Semantic rerank**: Broad queries (for example `error monitoring`) are reranked by intent match, not only popularity
 
 ## Requirements
 

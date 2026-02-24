@@ -20,6 +20,7 @@ from mcp_tap.server import AppContext
 from mcp_tap.tools.search import (
     _apply_composite_scoring,
     _apply_project_scoring,
+    _build_search_queries,
     _scan_project_safe,
     search_servers,
 )
@@ -94,6 +95,82 @@ def _profile_with_postgres() -> ProjectProfile:
 
 def _profile_empty() -> ProjectProfile:
     return ProjectProfile(path="/tmp/empty")
+
+
+# ===================================================================
+# search_servers -- Semantic Intent Routing
+# ===================================================================
+
+
+class TestSemanticIntentRouting:
+    """Tests for semantic query expansion and intent-aware reranking."""
+
+    def test_expands_error_monitoring_query_with_provider_hints(self):
+        queries = _build_search_queries("error monitoring")
+
+        assert queries[0] == "error monitoring"
+        assert "error" in queries
+        assert "sentry" in queries
+        assert "datadog" in queries
+        assert len(queries) <= 5
+
+    async def test_reranks_provider_match_above_generic_candidate(self):
+        ctx = _make_ctx()
+
+        generic = RegistryServer(
+            name="generic-monitoring-hub",
+            description="General monitoring dashboards for teams.",
+            version="1.0.0",
+            repository_url="https://example.com/generic",
+            packages=[
+                PackageInfo(
+                    registry_type=RegistryType.NPM,
+                    identifier="generic-monitoring-hub",
+                    version="1.0.0",
+                    transport=Transport.STDIO,
+                    environment_variables=[],
+                )
+            ],
+            use_count=40,
+            verified=True,
+            source="smithery",
+        )
+        sentry = RegistryServer(
+            name="sentry-mcp",
+            description="Error tracking and alerting for production systems.",
+            version="1.0.0",
+            repository_url="https://example.com/sentry",
+            packages=[
+                PackageInfo(
+                    registry_type=RegistryType.NPM,
+                    identifier="sentry-mcp",
+                    version="1.0.0",
+                    transport=Transport.STDIO,
+                    environment_variables=[],
+                )
+            ],
+            use_count=2,
+            verified=False,
+            source="smithery",
+        )
+
+        async def _search_side_effect(query: str, *, limit: int = 30) -> list[RegistryServer]:
+            if query in {"error monitoring", "error"}:
+                return [generic]
+            if query == "sentry":
+                return [sentry]
+            return []
+
+        ctx.request_context.lifespan_context.registry.search = AsyncMock(
+            side_effect=_search_side_effect
+        )
+
+        results = await search_servers("error monitoring", ctx, evaluate=False, limit=5)
+
+        assert len(results) >= 2
+        assert results[0]["name"] == "sentry-mcp"
+        assert results[0]["intent_match_score"] > results[1]["intent_match_score"]
+        assert "Provider hint match" in results[0]["intent_match_reason"]
 
 
 # ===================================================================
@@ -314,6 +391,8 @@ class TestApplyCompositeScoring:
         results = [
             {
                 "name": "postgres-mcp",
+                "intent_match_score": 0.9,
+                "intent_match_reason": "Provider hint match: sentry",
                 "relevance": "high",
                 "credential_status": "available",
                 "maturity": {"score": 0.8},
@@ -327,6 +406,8 @@ class TestApplyCompositeScoring:
         assert len(ranked) == 1
         assert "composite_score" in ranked[0]
         assert "composite_breakdown" in ranked[0]
+        assert "intent" in ranked[0]["composite_breakdown"]["weights"]
+        assert "intent_match_score" in ranked[0]["composite_breakdown"]["signals"]
         assert ranked[0]["composite_score"] > 0.0
 
     def test_sorts_by_composite_score(self):
@@ -334,6 +415,7 @@ class TestApplyCompositeScoring:
         results = [
             {
                 "name": "candidate-low",
+                "intent_match_score": 0.1,
                 "relevance": "low",
                 "credential_status": "missing",
                 "maturity": {"score": 0.1},
@@ -342,6 +424,7 @@ class TestApplyCompositeScoring:
             },
             {
                 "name": "candidate-best",
+                "intent_match_score": 0.95,
                 "relevance": "high",
                 "credential_status": "available",
                 "maturity": {"score": 0.9},
@@ -350,6 +433,7 @@ class TestApplyCompositeScoring:
             },
             {
                 "name": "candidate-mid",
+                "intent_match_score": 0.5,
                 "relevance": "medium",
                 "credential_status": "partial",
                 "maturity": {"score": 0.6},
@@ -362,6 +446,34 @@ class TestApplyCompositeScoring:
         names = [r["name"] for r in ranked]
 
         assert names == ["candidate-best", "candidate-mid", "candidate-low"]
+
+    def test_intent_signal_can_outweigh_popularity_noise(self):
+        """Should prioritize high intent match over generic but popular results."""
+        results = [
+            {
+                "name": "generic-popular",
+                "intent_match_score": 0.2,
+                "relevance": "low",
+                "credential_status": "none_required",
+                "maturity": {"score": 0.2},
+                "verified": True,
+                "use_count": 5000,
+            },
+            {
+                "name": "intent-specific",
+                "intent_match_score": 0.95,
+                "relevance": "low",
+                "credential_status": "none_required",
+                "maturity": {"score": 0.2},
+                "verified": False,
+                "use_count": 5,
+            },
+        ]
+
+        ranked = _apply_composite_scoring(results)
+        names = [r["name"] for r in ranked]
+
+        assert names[0] == "intent-specific"
 
     def test_relevance_still_drives_order_when_other_signals_absent(self):
         """Should preserve high > medium > low when only relevance is present."""
