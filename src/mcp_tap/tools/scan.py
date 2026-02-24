@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import asdict
 from pathlib import Path
 
 from mcp.server.fastmcp import Context
 
+from mcp_tap.benchmark.production_feedback import emit_recommendations_shown
 from mcp_tap.config.detection import detect_clients, resolve_config_path
 from mcp_tap.config.matching import installed_matches_package_identifier
 from mcp_tap.config.reader import parse_servers, read_config
@@ -23,6 +25,8 @@ from mcp_tap.scanner.detector import scan_project as _scan_project
 from mcp_tap.scanner.hints import generate_hints
 from mcp_tap.scanner.recommendations import TECHNOLOGY_SERVER_MAP
 from mcp_tap.tools._helpers import get_context
+
+logger = logging.getLogger(__name__)
 
 
 async def scan_project(
@@ -136,6 +140,11 @@ async def scan_project(
         )
 
         project_context = _build_project_context(profile.technologies, archetypes)
+        feedback_query_id = _emit_shown_feedback(
+            project_path=profile.path,
+            client=resolved_client.value if resolved_client else "unknown",
+            recommendations=recommendations,
+        )
 
         return {
             "path": profile.path,
@@ -173,6 +182,7 @@ async def scan_project(
             ],
             "archetypes": [asdict(a) for a in archetypes],
             "suggested_searches": suggested_searches,
+            "feedback_query_id": feedback_query_id,
             "summary": summary,
         }
 
@@ -365,3 +375,22 @@ def _build_summary(
         parts.append("Use configure_server to install the missing ones.")
 
     return " ".join(parts)
+
+
+def _emit_shown_feedback(
+    *,
+    project_path: str,
+    client: str,
+    recommendations: list[dict[str, object]],
+) -> str:
+    """Best-effort telemetry event for recommendations shown."""
+    try:
+        return emit_recommendations_shown(
+            project_path=project_path,
+            client=client,
+            recommendations=recommendations,
+            metadata={"source": "scan_project"},
+        )
+    except Exception:
+        logger.debug("Failed to emit recommendations_shown telemetry", exc_info=True)
+        return ""
