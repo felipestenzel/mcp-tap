@@ -11,10 +11,10 @@
 
 ### Before Implementing (Pre-flight)
 
-1. **Check existing issues**: Read `docs/issues/` to verify if the problem was already documented or resolved
+1. **Check existing issues**: Read both `docs/issues/` (active) and `docs/issues/resolved/` (closed) to verify if the problem was already documented
 2. **Check MEMORY.md**: Read `~/.claude/projects/.../memory/MEMORY.md` for context and lessons learned
 3. **Check agent memories**: Read relevant `.claude/agent-memory/<agent>/MEMORY.md` for specialized context
-4. **Create issue**: Document the problem in `docs/issues/YYYY-MM-DD_slug.md` using `docs/issues/_TEMPLATE.md` BEFORE starting implementation
+4. **Create issue**: Create the GitHub issue first to get an ID, then document it in `docs/issues/YYYY-MM-DD_<issue-id>_slug.md` using `docs/issues/_TEMPLATE.md` BEFORE starting implementation
 5. **Create feature branch**: ALWAYS create a branch before starting any work. NEVER commit directly to `main`.
    - Feature: `feature/YYYY-MM-DD-description`
    - Fix: `fix/YYYY-MM-DD-description`
@@ -60,7 +60,7 @@
 
 12. **Run tests**: `pytest tests/` — confirm nothing broke
 13. **Run linter**: `ruff check src/ tests/` — confirm no violations
-14. **Update the issue**: Status to `done`, fill "Solution", "Files Changed", and "Verification" sections
+14. **Update the issue**: Status to `done`, fill "Solution", "Files Changed", and "Verification" sections, then move the file to `docs/issues/resolved/`
 15. **Update affected docs**: ARCHITECTURE.md, README.md, etc.
 16. **Update MEMORY.md**: If there was a significant discovery or lesson learned
 
@@ -87,7 +87,8 @@ Handoff docs are **temporary** — delete them once the next session successfull
 
 - **Language**: Code in English. Comments in English. Docs in English. Agent communication in Portuguese (BR).
 - **Branch naming**: `feature/YYYY-MM-DD-description` or `fix/YYYY-MM-DD-description`
-- **Issue naming**: `docs/issues/YYYY-MM-DD_descriptive-slug.md`
+- **Issue naming**: `docs/issues/YYYY-MM-DD_<issue-id>_descriptive-slug.md` (issue ID is mandatory in filename)
+- **Resolved issue location**: when status becomes `done` or `wont_fix`, move the file to `docs/issues/resolved/`
 - **Commit messages**: English, format `Add/Update/Fix/Remove [component]: [description]`. NEVER include Co-Authored-By or any Claude/AI attribution. All commits must be authored solely by `felipestenzel`.
 - **Issue template**: Always use `docs/issues/_TEMPLATE.md` as base
 - **Imports**: Use `from __future__ import annotations` in ALL files

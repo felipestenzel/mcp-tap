@@ -162,11 +162,22 @@ Plus automatic lockfile management on every configure/remove.
 - **Tool conflict detection**: Warns when two servers expose overlapping tools that could confuse the LLM
 - **Connection validation**: Every install is verified with a real MCP connection test
 - **Secrets masked**: `list_installed` never exposes environment variable values
+- **Recommendation quality gate**: Offline benchmark (`precision@k`, `acceptance_rate`) keeps recommendation quality stable in CI
 
 ## Requirements
 
 - Python 3.11+ with [`uv`](https://docs.astral.sh/uv/) (recommended), **or**
 - Node.js 18+ (the npm package is a thin wrapper that calls the Python package via `uvx`/`pipx`)
+
+## Quality Gate
+
+Run the recommendation benchmark locally:
+
+```bash
+uv run python -m mcp_tap.benchmark.recommendation
+```
+
+Dataset: `src/mcp_tap/benchmark/recommendation_dataset_v1.json`.
 
 ## License
 

@@ -1,9 +1,14 @@
 # [TITLE]
 
 - **Date**: YYYY-MM-DD
+- **Issue**: #<github-issue-id>
 - **Status**: `open` | `in_progress` | `done` | `wont_fix`
 - **Branch**: `feature/YYYY-MM-DD-description`
 - **Priority**: `critical` | `high` | `medium` | `low`
+
+> Filename format (mandatory): `YYYY-MM-DD_<issue-id>_descriptive-slug.md`
+>
+> When status becomes `done` or `wont_fix`, move this file to `docs/issues/resolved/`.
 
 ## Problem
 

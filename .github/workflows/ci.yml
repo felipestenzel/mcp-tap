@@ -48,3 +48,7 @@ jobs:
 
       - name: Run tests
         run: uv run pytest tests/ -q
+
+      - name: Recommendation benchmark quality gate
+        if: matrix.python-version == '3.13'
+        run: uv run python -m mcp_tap.benchmark.recommendation
