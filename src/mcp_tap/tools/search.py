@@ -12,6 +12,7 @@ from mcp.server.fastmcp import Context
 
 from mcp_tap.errors import McpTapError
 from mcp_tap.evaluation.base import GitHubMetadataPort
+from mcp_tap.evaluation.github import github_runtime_status
 from mcp_tap.evaluation.scorer import score_maturity
 from mcp_tap.models import (
     MaturitySignals,
@@ -216,6 +217,10 @@ async def search_servers(
         # Fetch maturity signals from GitHub
         if evaluate:
             results = await _apply_maturity(results, app.github_metadata)
+            runtime = github_runtime_status()
+            degraded_count = _annotate_maturity_availability(results, runtime)
+            if degraded_count > 0:
+                await ctx.info(_maturity_warning_message(degraded_count, runtime))
 
         # Apply query intent routing score to reduce semantic noise.
         results = _apply_intent_scoring(results, query)
@@ -611,6 +616,69 @@ async def _apply_maturity(
     return results
 
 
+def _has_maturity_signal(result: dict[str, object]) -> bool:
+    """Check whether a result contains a usable maturity score."""
+    maturity = result.get("maturity")
+    if not isinstance(maturity, dict):
+        return False
+    return isinstance(maturity.get("score"), int | float)
+
+
+def _annotate_maturity_availability(
+    results: list[dict[str, object]],
+    runtime: dict[str, object],
+) -> int:
+    """Annotate GitHub-backed results when maturity metadata is unavailable."""
+    degraded_count = 0
+    rate_limited = bool(runtime.get("rate_limited") is True)
+    has_auth = bool(runtime.get("has_auth") is True)
+    auth_source = str(runtime.get("auth_source", "none"))
+
+    for result in results:
+        repository_url = str(result.get("repository_url", "")).lower()
+        if "github.com" not in repository_url:
+            continue
+
+        if _has_maturity_signal(result):
+            result["maturity_signal_available"] = True
+            result["maturity_status"] = "available"
+            continue
+
+        degraded_count += 1
+        result["maturity_signal_available"] = False
+        result["maturity_status"] = "unavailable"
+
+        if rate_limited:
+            result["maturity_unavailable_reason"] = "github_rate_limited"
+        elif not has_auth:
+            result["maturity_unavailable_reason"] = "github_metadata_unavailable_no_auth"
+        else:
+            result["maturity_unavailable_reason"] = "github_metadata_unavailable"
+
+        result["maturity_auth_source"] = auth_source
+
+    return degraded_count
+
+
+def _maturity_warning_message(degraded_count: int, runtime: dict[str, object]) -> str:
+    """Build a single, user-facing warning for degraded maturity metadata."""
+    rate_limited = bool(runtime.get("rate_limited") is True)
+    auth_source = str(runtime.get("auth_source", "none"))
+    if rate_limited:
+        reset_seconds = int(runtime.get("rate_limit_reset_seconds", 0))
+        return (
+            "GitHub maturity metadata unavailable for "
+            f"{degraded_count} result(s) due to API rate limit "
+            f"(auth source: {auth_source}, reset in ~{reset_seconds}s). "
+            "Composite ranking was rebalanced without maturity penalty."
+        )
+    return (
+        "GitHub maturity metadata unavailable for "
+        f"{degraded_count} result(s). "
+        "Composite ranking was rebalanced without maturity penalty."
+    )
+
+
 async def _scan_project_safe(project_path: str) -> ProjectProfile | None:
     """Attempt to scan a project directory, returning None on failure."""
     try:
@@ -654,6 +722,19 @@ def _normalize_use_count(use_count: object) -> float:
 
 def _compute_composite(result: dict[str, object]) -> tuple[float, dict[str, object]]:
     """Compute deterministic ranking score and detailed breakdown for one result."""
+    has_maturity = _has_maturity_signal(result)
+    if has_maturity:
+        effective_weights = dict(_COMPOSITE_WEIGHTS)
+        maturity_rebalanced = False
+    else:
+        non_maturity_total = 1.0 - _COMPOSITE_WEIGHTS["maturity"]
+        scale = 1.0 / non_maturity_total if non_maturity_total > 0 else 1.0
+        effective_weights = {
+            key: (0.0 if key == "maturity" else value * scale)
+            for key, value in _COMPOSITE_WEIGHTS.items()
+        }
+        maturity_rebalanced = True
+
     intent_score = _extract_intent_score(result)
     relevance_label = str(result.get("relevance", "")).lower()
     relevance_score = _RELEVANCE_SCORE.get(relevance_label, _DEFAULT_RELEVANCE_SCORE)
@@ -669,23 +750,25 @@ def _compute_composite(result: dict[str, object]) -> tuple[float, dict[str, obje
     credential_score = _CREDENTIAL_SCORE.get(credential_label, _DEFAULT_CREDENTIAL_SCORE)
 
     contributions = {
-        "intent": round(_COMPOSITE_WEIGHTS["intent"] * intent_score, 4),
-        "relevance": round(_COMPOSITE_WEIGHTS["relevance"] * relevance_score, 4),
-        "maturity": round(_COMPOSITE_WEIGHTS["maturity"] * maturity_score, 4),
-        "verified": round(_COMPOSITE_WEIGHTS["verified"] * verified_score, 4),
-        "use_count": round(_COMPOSITE_WEIGHTS["use_count"] * use_count_score, 4),
-        "credential": round(_COMPOSITE_WEIGHTS["credential"] * credential_score, 4),
+        "intent": round(effective_weights["intent"] * intent_score, 4),
+        "relevance": round(effective_weights["relevance"] * relevance_score, 4),
+        "maturity": round(effective_weights["maturity"] * maturity_score, 4),
+        "verified": round(effective_weights["verified"] * verified_score, 4),
+        "use_count": round(effective_weights["use_count"] * use_count_score, 4),
+        "credential": round(effective_weights["credential"] * credential_score, 4),
     }
     total = round(sum(contributions.values()), 4)
 
     breakdown: dict[str, object] = {
-        "weights": dict(_COMPOSITE_WEIGHTS),
+        "weights": {key: round(value, 4) for key, value in effective_weights.items()},
         "signals": {
             "intent_match_reason": str(result.get("intent_match_reason", "")),
             "intent_match_score": round(intent_score, 4),
             "intent_gate_applied": bool(result.get("intent_gate_applied") is True),
             "relevance": relevance_label or "unknown",
             "maturity_score": round(maturity_score, 4),
+            "maturity_signal_available": has_maturity,
+            "maturity_rebalanced": maturity_rebalanced,
             "verified": bool(result.get("verified") is True),
             "use_count": use_count if isinstance(use_count, int) else 0,
             "credential_status": credential_label or "unknown",
