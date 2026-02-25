@@ -301,6 +301,23 @@ class TestSearchBackwardCompatible:
 
         assert results == []
 
+    async def test_marks_stale_cache_metadata_when_registry_used_fallback(self):
+        """Should expose cache metadata when results come from offline fallback."""
+        ctx = _make_ctx()
+        registry = MagicMock()
+        registry.search = AsyncMock(
+            return_value=[_make_registry_server("pg-server", "PostgreSQL MCP server")]
+        )
+        registry.last_search_used_cache = True
+        registry.last_search_cache_age_seconds = 42
+        ctx.request_context.lifespan_context.registry = registry
+
+        results = await search_servers("postgres", ctx, evaluate=False)
+
+        assert len(results) == 1
+        assert results[0]["cache_status"] == "stale_fallback"
+        assert results[0]["cache_age_seconds"] == 42
+
 
 # ===================================================================
 # search_servers -- With project_path

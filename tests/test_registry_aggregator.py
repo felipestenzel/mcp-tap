@@ -145,6 +145,57 @@ class TestAggregatedRegistrySearch:
 
         assert results == []
 
+    async def test_uses_cached_results_when_sources_fail(self):
+        """Should fall back to cached results when both sources fail."""
+        off = make_official_server(github_url="https://github.com/org/cached")
+        agg = _make_registry(official_results=[off], smithery_results=[])
+
+        first = await agg.search("postgres")
+        assert len(first) == 1
+        assert agg.last_search_used_cache is False
+
+        agg.official.search = AsyncMock(side_effect=RuntimeError("official down"))
+        agg.smithery.search = AsyncMock(side_effect=RuntimeError("smithery down"))
+
+        second = await agg.search("postgres")
+
+        assert len(second) == 1
+        assert second[0].name == "official/server"
+        assert agg.last_search_used_cache is True
+        assert isinstance(agg.last_search_cache_age_seconds, int)
+
+    async def test_does_not_use_cache_when_query_returns_empty_without_errors(self):
+        """Should return empty results when both registries respond successfully with no matches."""
+        off = make_official_server(github_url="https://github.com/org/cached")
+        agg = _make_registry(official_results=[off], smithery_results=[])
+
+        cached = await agg.search("postgres")
+        assert len(cached) == 1
+
+        agg.official.search = AsyncMock(return_value=[])
+        agg.smithery.search = AsyncMock(return_value=[])
+
+        empty = await agg.search("postgres")
+
+        assert empty == []
+        assert agg.last_search_used_cache is False
+
+    async def test_cache_entry_expires_by_ttl(self):
+        """Should not use cached result when TTL has expired."""
+        off = make_official_server(github_url="https://github.com/org/cached")
+        agg = _make_registry(official_results=[off], smithery_results=[])
+        live = await agg.search("postgres")
+        assert len(live) == 1
+
+        # Force expiration regardless of current monotonic clock value.
+        agg.cache_ttl_seconds = -1
+        agg.official.search = AsyncMock(side_effect=RuntimeError("official down"))
+        agg.smithery.search = AsyncMock(side_effect=RuntimeError("smithery down"))
+        expired = await agg.search("postgres")
+
+        assert expired == []
+        assert agg.last_search_used_cache is False
+
 
 # ═══════════════════════════════════════════════════════════════════
 # TestAggregatedRegistryDeduplication
