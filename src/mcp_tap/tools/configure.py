@@ -698,10 +698,7 @@ def _build_http_dry_run_result(
         )
 
     preview_config = per_client[0]["config_preview"] if per_client else {}
-    message = (
-        f"Dry-run preflight for '{server_name}' completed. "
-        "No config file was written."
-    )
+    message = f"Dry-run preflight for '{server_name}' completed. No config file was written."
     if http_result.error:
         message += f" Reachability result: {http_result.error}"
 
