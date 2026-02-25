@@ -6,6 +6,7 @@ import asyncio
 import logging
 import os
 import re
+import subprocess
 import time
 
 import httpx
@@ -18,6 +19,17 @@ logger = logging.getLogger(__name__)
 
 _cache: dict[str, tuple[float, MaturitySignals]] = {}
 _CACHE_TTL = 900  # 15 minutes
+
+# ─── Runtime state ─────────────────────────────────────────
+
+_rate_limit_reset: float = 0.0
+_token_resolved: bool = False
+_resolved_token: str | None = None
+_resolved_token_source: str = "none"  # env | gh_cli | none
+
+_logged_no_token_hint: bool = False
+_logged_gh_cli_auth_hint: bool = False
+_logged_rate_limit_hint: bool = False
 
 
 def _cache_get(key: str) -> MaturitySignals | None:
@@ -34,15 +46,26 @@ def _cache_set(key: str, signals: MaturitySignals) -> None:
 
 
 def clear_cache() -> None:
-    """Clear the in-memory cache and rate limit state. Primarily for testing."""
+    """Clear in-memory cache plus auth/rate-limit runtime state (primarily for tests)."""
+    global _logged_gh_cli_auth_hint
+    global _logged_no_token_hint
+    global _logged_rate_limit_hint
     global _rate_limit_reset
+    global _resolved_token
+    global _resolved_token_source
+    global _token_resolved
+
     _cache.clear()
     _rate_limit_reset = 0.0
+    _token_resolved = False
+    _resolved_token = None
+    _resolved_token_source = "none"
+    _logged_no_token_hint = False
+    _logged_gh_cli_auth_hint = False
+    _logged_rate_limit_hint = False
 
 
 # ─── Rate limit detection ──────────────────────────────────
-
-_rate_limit_reset: float = 0.0
 
 
 def _is_rate_limited() -> bool:
@@ -50,32 +73,126 @@ def _is_rate_limited() -> bool:
 
 
 def _check_rate_limit(resp: httpx.Response) -> None:
+    """Update local rate-limit gate and emit a single clear warning message."""
+    global _logged_rate_limit_hint
     global _rate_limit_reset
+
     remaining = resp.headers.get("X-RateLimit-Remaining")
-    if remaining is not None and int(remaining) == 0:
-        reset_epoch = int(resp.headers.get("X-RateLimit-Reset", "0"))
-        _rate_limit_reset = time.monotonic() + max(0, reset_epoch - time.time())
-        logger.warning(
-            "GitHub API rate limit exhausted. "
-            "Set GITHUB_TOKEN env var for 5000 req/hr. "
-            "Maturity scoring disabled until reset."
-        )
+    if remaining is None:
+        return
+    try:
+        remaining_value = int(remaining)
+    except ValueError:
+        return
+    if remaining_value != 0:
+        return
+
+    reset_epoch = int(resp.headers.get("X-RateLimit-Reset", "0"))
+    _rate_limit_reset = time.monotonic() + max(0, reset_epoch - time.time())
+
+    if _logged_rate_limit_hint:
+        return
+    _, source = _resolve_github_token()
+    source_hint = (
+        "env GITHUB_TOKEN"
+        if source == "env"
+        else "gh auth token"
+        if source == "gh_cli"
+        else "no auth token"
+    )
+    logger.warning(
+        "GitHub API rate limit exhausted (%s). Maturity scoring degraded until reset.",
+        source_hint,
+    )
+    _logged_rate_limit_hint = True
 
 
-# ─── Auth headers ──────────────────────────────────────────
+# ─── Auth resolution ───────────────────────────────────────
 
 
 def _github_headers() -> dict[str, str]:
     headers = {"Accept": "application/vnd.github+json"}
-    token = os.environ.get("GITHUB_TOKEN")
+    token, _ = _resolve_github_token()
     if token:
         headers["Authorization"] = f"Bearer {token}"
     return headers
 
 
+def _resolve_github_token() -> tuple[str | None, str]:
+    """Resolve auth token: env first, then `gh auth token` fallback."""
+    global _logged_gh_cli_auth_hint
+    global _logged_no_token_hint
+    global _resolved_token
+    global _resolved_token_source
+    global _token_resolved
+
+    env_token = os.environ.get("GITHUB_TOKEN", "").strip()
+    if env_token:
+        _token_resolved = True
+        _resolved_token = env_token
+        _resolved_token_source = "env"
+        return env_token, "env"
+
+    if _token_resolved:
+        return _resolved_token, _resolved_token_source
+
+    _token_resolved = True
+    gh_token = _resolve_gh_cli_token()
+    if gh_token:
+        _resolved_token = gh_token
+        _resolved_token_source = "gh_cli"
+        if not _logged_gh_cli_auth_hint:
+            logger.info("Using GitHub token from `gh auth token` fallback.")
+            _logged_gh_cli_auth_hint = True
+        return gh_token, "gh_cli"
+
+    _resolved_token = None
+    _resolved_token_source = "none"
+    if not _logged_no_token_hint:
+        logger.info(
+            "No GitHub auth token found (checked GITHUB_TOKEN and `gh auth token`). "
+            "Maturity scoring may degrade under rate limits."
+        )
+        _logged_no_token_hint = True
+    return None, "none"
+
+
+def _resolve_gh_cli_token() -> str | None:
+    """Try to read a token from local GitHub CLI auth context."""
+    try:
+        completed = subprocess.run(
+            ["gh", "auth", "token"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+    if completed.returncode != 0:
+        return None
+    token = completed.stdout.strip()
+    return token or None
+
+
+def github_runtime_status() -> dict[str, object]:
+    """Return auth/rate-limit runtime state for search result annotations."""
+    token, source = _resolve_github_token()
+    rate_limited = _is_rate_limited()
+    reset_seconds = int(max(0.0, _rate_limit_reset - time.monotonic())) if rate_limited else 0
+    return {
+        "has_auth": bool(token),
+        "auth_source": source,
+        "rate_limited": rate_limited,
+        "rate_limit_reset_seconds": reset_seconds,
+    }
+
+
 # ─── Concurrency control ──────────────────────────────────
 
 _github_semaphore = asyncio.Semaphore(5)
+
 
 # ─── URL parsing ───────────────────────────────────────────
 
@@ -112,7 +229,8 @@ async def fetch_repo_metadata(
     """Fetch repository metadata from GitHub's public API.
 
     Features: in-memory cache (15min TTL), rate limit detection,
-    GITHUB_TOKEN support, concurrency limiting (5 concurrent requests).
+    auth fallback (`GITHUB_TOKEN` -> `gh auth token`),
+    concurrency limiting (5 concurrent requests).
     Returns None if the URL is not a GitHub repo or the API fails.
     """
     parsed = _parse_github_url(repository_url)

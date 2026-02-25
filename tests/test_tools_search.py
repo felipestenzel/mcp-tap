@@ -9,6 +9,7 @@ from mcp_tap.errors import RegistryError
 from mcp_tap.models import (
     DetectedTechnology,
     EnvVarSpec,
+    MaturitySignals,
     PackageInfo,
     ProjectProfile,
     RegistryServer,
@@ -587,6 +588,49 @@ class TestApplyCompositeScoring:
 
         assert names == ["high-candidate", "medium-candidate", "low-candidate"]
 
+    def test_rebalances_weights_when_maturity_is_unavailable(self):
+        """Should redistribute maturity weight when maturity signal is missing."""
+        results = [
+            {
+                "name": "no-maturity",
+                "intent_match_score": 0.8,
+                "intent_match_reason": "keyword match",
+                "relevance": "high",
+                "credential_status": "available",
+            }
+        ]
+
+        ranked = _apply_composite_scoring(results)
+        breakdown = ranked[0]["composite_breakdown"]
+        weights = breakdown["weights"]
+
+        assert weights["maturity"] == 0.0
+        assert round(sum(weights.values()), 4) == 1.0
+        assert breakdown["signals"]["maturity_signal_available"] is False
+        assert breakdown["signals"]["maturity_rebalanced"] is True
+
+    def test_keeps_default_weights_when_maturity_exists(self):
+        """Should keep baseline weights when maturity signal is available."""
+        results = [
+            {
+                "name": "with-maturity",
+                "intent_match_score": 0.8,
+                "intent_match_reason": "keyword match",
+                "relevance": "high",
+                "credential_status": "available",
+                "maturity": {"score": 0.7},
+            }
+        ]
+
+        ranked = _apply_composite_scoring(results)
+        breakdown = ranked[0]["composite_breakdown"]
+        weights = breakdown["weights"]
+
+        assert weights["maturity"] == 0.2
+        assert round(sum(weights.values()), 4) == 1.0
+        assert breakdown["signals"]["maturity_signal_available"] is True
+        assert breakdown["signals"]["maturity_rebalanced"] is False
+
 
 # ===================================================================
 # search_servers -- Medium Relevance
@@ -708,6 +752,100 @@ class TestSearchResultStructure:
         assert len(results) == 1
         assert results[0]["transport"] == "streamable-http"
         assert results[0]["registry_type"] == "streamable-http"
+
+
+class TestSearchMaturityDegradation:
+    """Tests degraded maturity transparency and warning behavior."""
+
+    async def test_marks_github_results_when_rate_limited(self):
+        """Should annotate missing maturity and emit a single warning."""
+        ctx = _make_ctx()
+        ctx.request_context.lifespan_context.registry.search = AsyncMock(
+            return_value=[
+                RegistryServer(
+                    name="example-github-server",
+                    description="GitHub backed server",
+                    version="1.0.0",
+                    repository_url="https://github.com/example/server",
+                    packages=[
+                        PackageInfo(
+                            registry_type=RegistryType.NPM,
+                            identifier="example-server",
+                            version="1.0.0",
+                            transport=Transport.STDIO,
+                            environment_variables=[],
+                        )
+                    ],
+                )
+            ]
+        )
+        ctx.request_context.lifespan_context.github_metadata.fetch_repo_metadata = AsyncMock(
+            return_value=None
+        )
+
+        with patch(
+            "mcp_tap.tools.search.github_runtime_status",
+            return_value={
+                "has_auth": False,
+                "auth_source": "none",
+                "rate_limited": True,
+                "rate_limit_reset_seconds": 120,
+            },
+        ):
+            results = await search_servers("github", ctx, evaluate=True, limit=5)
+
+        assert len(results) == 1
+        assert results[0]["maturity_signal_available"] is False
+        assert results[0]["maturity_status"] == "unavailable"
+        assert results[0]["maturity_unavailable_reason"] == "github_rate_limited"
+        assert results[0]["maturity_auth_source"] == "none"
+        ctx.info.assert_awaited_once()
+        info_message = ctx.info.await_args.args[0]
+        assert "rate limit" in info_message.lower()
+        assert "rebalanced" in info_message.lower()
+
+    async def test_no_warning_when_maturity_is_available(self):
+        """Should avoid degraded warning when maturity metadata is present."""
+        ctx = _make_ctx()
+        ctx.request_context.lifespan_context.registry.search = AsyncMock(
+            return_value=[
+                RegistryServer(
+                    name="example-github-server",
+                    description="GitHub backed server",
+                    version="1.0.0",
+                    repository_url="https://github.com/example/server",
+                    packages=[
+                        PackageInfo(
+                            registry_type=RegistryType.NPM,
+                            identifier="example-server",
+                            version="1.0.0",
+                            transport=Transport.STDIO,
+                            environment_variables=[],
+                        )
+                    ],
+                )
+            ]
+        )
+        ctx.request_context.lifespan_context.github_metadata.fetch_repo_metadata = AsyncMock(
+            return_value=MaturitySignals(stars=10, last_commit_date="2026-02-20T00:00:00Z")
+        )
+
+        with patch(
+            "mcp_tap.tools.search.github_runtime_status",
+            return_value={
+                "has_auth": True,
+                "auth_source": "env",
+                "rate_limited": False,
+                "rate_limit_reset_seconds": 0,
+            },
+        ):
+            results = await search_servers("github", ctx, evaluate=True, limit=5)
+
+        assert len(results) == 1
+        assert results[0]["maturity_signal_available"] is True
+        assert results[0]["maturity_status"] == "available"
+        assert "maturity_unavailable_reason" not in results[0]
+        ctx.info.assert_not_awaited()
 
 
 # ===================================================================

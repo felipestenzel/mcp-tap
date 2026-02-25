@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 import time
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, patch
@@ -16,11 +17,22 @@ from mcp_tap.evaluation.github import (
     _github_headers,
     _is_rate_limited,
     _parse_github_url,
+    _resolve_github_token,
     clear_cache,
     fetch_repo_metadata,
+    github_runtime_status,
 )
 from mcp_tap.evaluation.scorer import score_maturity
 from mcp_tap.models import MaturityScore, MaturitySignals
+
+
+@pytest.fixture(autouse=True)
+def _reset_runtime_state() -> None:
+    """Ensure GitHub runtime/cache state is isolated between tests."""
+    clear_cache()
+    yield
+    clear_cache()
+
 
 # ─── GitHub URL parsing ──────────────────────────────────────
 
@@ -342,7 +354,10 @@ class TestGitHubHeaders:
 
     def test_headers_without_token(self) -> None:
         """Should not include Authorization when GITHUB_TOKEN is not set."""
-        with patch.dict("os.environ", {}, clear=True):
+        with (
+            patch.dict("os.environ", {}, clear=True),
+            patch("mcp_tap.evaluation.github._resolve_gh_cli_token", return_value=None),
+        ):
             headers = _github_headers()
 
         assert "Accept" in headers
@@ -358,10 +373,64 @@ class TestGitHubHeaders:
 
     def test_accept_header_always_present(self) -> None:
         """Should always include the GitHub JSON accept header."""
-        with patch.dict("os.environ", {}, clear=True):
+        with (
+            patch.dict("os.environ", {}, clear=True),
+            patch("mcp_tap.evaluation.github._resolve_gh_cli_token", return_value=None),
+        ):
             headers = _github_headers()
 
         assert headers["Accept"] == "application/vnd.github+json"
+
+
+class TestGitHubTokenResolution:
+    """Tests for token resolution order and runtime state introspection."""
+
+    def test_env_token_has_priority_over_gh_cli(self) -> None:
+        """Should prefer env token and skip gh fallback when GITHUB_TOKEN is set."""
+        with (
+            patch.dict("os.environ", {"GITHUB_TOKEN": "ghp_env"}, clear=True),
+            patch("mcp_tap.evaluation.github.subprocess.run") as mock_run,
+        ):
+            token, source = _resolve_github_token()
+
+        assert token == "ghp_env"
+        assert source == "env"
+        mock_run.assert_not_called()
+
+    def test_gh_cli_fallback_used_when_env_missing(self) -> None:
+        """Should resolve token from gh CLI when env token is absent."""
+        completed = subprocess.CompletedProcess(
+            args=["gh", "auth", "token"],
+            returncode=0,
+            stdout="ghp_cli_token\n",
+            stderr="",
+        )
+        with (
+            patch.dict("os.environ", {}, clear=True),
+            patch("mcp_tap.evaluation.github.subprocess.run", return_value=completed),
+        ):
+            token, source = _resolve_github_token()
+
+        assert token == "ghp_cli_token"
+        assert source == "gh_cli"
+
+    def test_runtime_status_reports_rate_limit_window(self) -> None:
+        """Should expose active rate-limit state and reset seconds."""
+        import mcp_tap.evaluation.github as gh_mod
+
+        gh_mod._rate_limit_reset = time.monotonic() + 30
+
+        with (
+            patch.dict("os.environ", {}, clear=True),
+            patch("mcp_tap.evaluation.github._resolve_gh_cli_token", return_value=None),
+        ):
+            status = github_runtime_status()
+
+        assert status["has_auth"] is False
+        assert status["auth_source"] == "none"
+        assert status["rate_limited"] is True
+        assert isinstance(status["rate_limit_reset_seconds"], int)
+        assert status["rate_limit_reset_seconds"] > 0
 
 
 # ─── Cache integration with fetch_repo_metadata (Fix C2) ─────
